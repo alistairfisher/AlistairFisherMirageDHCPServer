@@ -25,7 +25,17 @@ module Make (Console:V1_LWT.CONSOLE)
     type reserved_address = {
       ip_address: Ipaddr.V4.t;
       xid: Cstruct.uint32;
-      timestamp: float;
+      reservation_timestamp: float;
+    }
+    
+    type in_use_address = { (*use this to store client info, clientID/IPaddr is a key*)
+      lease_length:int32;
+      lease_timestamp:float; 
+    }
+    
+    type clientID = {
+      identifier: string;
+      client_ip_address: Ipaddr.V4.t;
     }
     
     type t = { (*not sure if this is appropriate*)
@@ -33,6 +43,8 @@ module Make (Console:V1_LWT.CONSOLE)
       udp: Udp.t;
       mac: Macaddr.t;
     }
+    
+   exception No_server_ID of string;;
     
     cstruct dhcp {
         uint8_t op;
@@ -86,16 +98,16 @@ module Make (Console:V1_LWT.CONSOLE)
       set_dhcp_file (Bytes.make 128 '\000') 0 buf;
       set_dhcp_cookie buf 0x63825363l;
       Cstruct.blit_from_string options 0 buf sizeof_dhcp options_len;
-      let dest_ip_address = if (flags = 0) then yiaddr
+      let dest_ip_address = if (flags = 0) then yiaddr (*this is not future proof: currently only 1 flag is used so yiaddr is used iff flags = 0, this may change in the future*)
         else Ipaddr.V4.broadcast
       in
       let buf = Cstruct.set_len buf (sizeof_dhcp + options_len) in
-      Console.log_s t.c (sprintf "Sending DHCP broadcast (length %d)" total_len)
+      Console.log_s t.c (sprintf "Sending DHCP packet (length %d)" total_len)
       >>= fun () ->
       Udp.write ~dest_ip: dest_ip_address ~source_port:67 ~dest_port:68 t.udp buf;;
   
     (*unwrap DHCP packet, case split depending on the contents*)
-    let input t ~src ~dst:_ ~srcport:_ ~reserved_addresses ~in_use_addresses ~available_addresses ~serverIP ~leaseLength ~server_parameters buf = (*lots of duplication with client, need to combine into one unit*)
+    let input t ~src ~dst:_ ~srcport:_ ~reserved_addresses ~in_use_addresses ~available_addresses ~serverIP ~max_lease ~server_parameters buf = (*lots of duplication with client, need to combine into one unit*)
 	    let ciaddr = Ipaddr.V4.of_int32 (get_dhcp_ciaddr buf) in
       let yiaddr = Ipaddr.V4.of_int32 (get_dhcp_yiaddr buf) in
 	    let siaddr = Ipaddr.V4.of_int32 (get_dhcp_siaddr buf) in
@@ -128,21 +140,28 @@ module Make (Console:V1_LWT.CONSOLE)
       let open Dhcp_serverv4_options in
       let client_identifier = match find packet (function `Client_id id -> Some id |_ -> None) with
         |None -> chaddr
-        |Some x-> x
+        |Some id-> id
+      in
+      let leaseLength = match find packet (function `Lease_time requested_lease -> Some requested_lease |_ -> None) with
+        |None -> max_lease
+        |Some requested_lease-> Int32.of_int(min (Int32.to_int requested_lease) (Int32.to_int max_lease))
       in
 	    match packet.op with
 		    |`Discover ->
           let address = List.hd (!available_addresses) in
-            reserved_addresses:=(client_identifier,{ip_address=address;xid=xid;timestamp=Clock.time()})::(!reserved_addresses);
+            reserved_addresses:=(client_identifier,{ip_address=address;xid=xid;reservation_timestamp=Clock.time()})::(!reserved_addresses);
 			      available_addresses:=List.tl(!available_addresses);
             let options = make_options ~client_requests: (packet.opts) ~serverIP: serverIP ~lease_length:leaseLength ~message_type:`Offer in
             (*send DHCP Offer*)
             output_broadcast t ~xid:xid ~ciaddr:0 ~yiaddr:address ~siaddr:serverIP ~giaddr:giaddr ~secs:secs ~chaddr:chaddr ~flags:flags ~options:options;
 		    |`Request -> (*TODO: case split request and renewal/verification (RFC page 30)*)
-         (* let server_identifier = find packet (function `Server_identifier id -> id |_ -> Ipaddr.V4.of_string "0.0.0.0")in *) (*TODO: handle case where id is not specified (i.e. error)*)
-          if (siaddr=serverIP&&List.mem_assoc client_identifier (!reserved_addresses) && ((List.assoc client_identifier (!reserved_addresses)).xid=xid)) then ( (*the client is requesting the IP address, this is not a renewal*)
+         let server_identifier = match (find packet(function `Server_identifier id ->Some id |_ -> None)) with
+           |Some x -> x
+           |None -> raise (No_server_ID client_identifier)
+         in
+         if (server_identifier=serverIP&&List.mem_assoc client_identifier (!reserved_addresses) && ((List.assoc client_identifier (!reserved_addresses)).xid=xid)) then ( (*the client is requesting the IP address, this is not a renewal*)
             let address = (List.assoc client_identifier (!reserved_addresses)).ip_address in
-            in_use_addresses:=(client_identifier,{ip_address=address;xid=xid;timestamp=Clock.time()})::!in_use_addresses;
+            in_use_addresses:=({identifier=client_identifier;client_ip_address=address},{lease_length=leaseLength;lease_timestamp=Clock.time()})::!in_use_addresses;
             reserved_addresses:=List.remove_assoc client_identifier (!reserved_addresses);
             let options = make_options ~client_requests: (packet.opts) ~serverIP: serverIP ~lease_length:leaseLength ~message_type:`Ack in
             output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:address ~siaddr:serverIP ~giaddr:giaddr ~secs:secs ~chaddr:chaddr ~flags:flags ~options:options;
@@ -152,27 +171,33 @@ module Make (Console:V1_LWT.CONSOLE)
         |`Decline ->
 			    if (List.mem_assoc client_identifier (!reserved_addresses)) then
             let address = (List.assoc chaddr (!reserved_addresses)).ip_address in
-            in_use_addresses:=("0", {ip_address=address;xid=xid;timestamp=Clock.time()})::!in_use_addresses; (*0 is a placeholder as real hardware address unknown, need some method of avoiding garbage collection, and to notify network admin, change xid*)
+            in_use_addresses:=({identifier="Unknown";client_ip_address=address}, {lease_length=Int32.max_int;lease_timestamp=Clock.time()})::!in_use_addresses; (*must notify network admin*)
             reserved_addresses:=List.tl(!reserved_addresses); Lwt.return_unit;
           else Lwt.return_unit;
         |`Release -> (*this may give errors with duplicate packets, should wipe ALL entries*)
-          if (List.mem_assoc client_identifier (!in_use_addresses)) then
-            (let address = (List.assoc client_identifier (!in_use_addresses)).ip_address in
-            available_addresses:=address::(!available_addresses);
-            in_use_addresses:=List.remove_assoc client_identifier (!in_use_addresses));
-          Lwt.return_unit;
+          let entry = {identifier=client_identifier;client_ip_address=ciaddr} in
+          if (List.mem_assoc entry (!in_use_addresses)) then (
+            available_addresses:=ciaddr::(!available_addresses);
+            in_use_addresses:=List.remove_assoc entry (!in_use_addresses));
+            Lwt.return_unit;
         |`Inform -> Console.log_s t.c "Inform received"; (*TODO: construct real packet*) 
         | _ ->Lwt.return_unit;; (*this is a packet meant for a client*)
      
-    let rec garbage_collect ~reserved_addresses ~in_use_addresses ~leaselength ~collection_interval= (*TODO: accomodate infinite lease*)
-      let rec gc l leaselength = match l with
+    let rec garbage_collect ~reserved_addresses ~in_use_addresses ~collection_interval=
+      let rec gc_reserved = function
         |[] -> []
-        |h::t -> if (Clock.time()-.(snd h).timestamp > leaselength) then gc t leaselength
-          else h::gc t leaselength
-      in Time.sleep(collection_interval)>>=fun()->(reserved_addresses:=(gc !reserved_addresses leaselength));(in_use_addresses:=(gc !in_use_addresses leaselength));garbage_collect ~reserved_addresses:reserved_addresses ~in_use_addresses:in_use_addresses ~leaselength:leaselength ~collection_interval:collection_interval;;
+        |h::t -> if (Clock.time()-.(snd h).reservation_timestamp > collection_interval) then (gc_reserved t)
+          else (gc_reserved t)
+      in
+      let rec gc_in_use = function
+        |[] -> []
+        |h::t -> 
+          let lease = Int32.to_int((snd h).lease_length) in
+          if (lease != 0xffffffff && (int_of_float(Clock.time()-.(snd h).lease_timestamp) > lease)) then gc_in_use t else h::(gc_in_use t)
+      in Time.sleep(collection_interval)>>=fun()->(reserved_addresses:=(gc_reserved !reserved_addresses));(in_use_addresses:=(gc_in_use !in_use_addresses));garbage_collect ~reserved_addresses:reserved_addresses ~in_use_addresses:in_use_addresses ~collection_interval:collection_interval;;
         
     (*let dhcp ~scopebottom ~scopetop ~leaselength ~serverIP ~udp ~probe:true ~subnetmask:NONE ~DNSservers:NONE ~ ~= (*note: lease time is in seconds. 0xffffffff is reserved for infinity*)
-      let reserved_addresses:(string*reserved_address) list ref = ref [] in (*clientID,xid,IPaddress,timestamp*)
-      let in_use_addresses:(string*reserved_address) list ref = ref [] in
+      let reserved_addresses:(string*reserved_address) list ref = ref [] in
+      let in_use_addresses:(string*in_use_address) list ref = ref [] in
     	let available_addresses = ref listgen(scopebottom,scopetop) in*)
 end
