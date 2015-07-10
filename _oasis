@@ -89,7 +89,7 @@ Library dhcpv4
   Path:               dhcp
   Findlibparent:      tcpip
   Findlibname:        dhcpv4
-  Modules:            Dhcpv4_option,Dhcp_clientv4
+  Modules:            Dhcpv4_option,Dhcp_clientv4,Dhcp_serverv4
   BuildDepends:       io-page, bytes,
                       mirage-types,
                       ipaddr,
