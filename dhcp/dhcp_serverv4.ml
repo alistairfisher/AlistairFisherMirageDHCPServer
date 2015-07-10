@@ -1,6 +1,18 @@
-(*Initial DHCP- lists for storage (need to migrate to IRMIN), no static allocation,no additional information (DHCPInform),can't handle DHCPDecline or Release,
-server IP is always this server,no support for requested IP (in options),no address selection based on giaddr,no requested lease support, NO OPTIONS support (including mandatory fields),
-no probing before reusing address, *)
+(*Initial DHCP- lists for storage (need to migrate to IRMIN), no static allocation,no additional information (DHCPInform),server IP is always this server,
+no support for requested IP (in options),no address selection based on giaddr,no requested lease support, no probing before reusing address, no support for the infinite lease...*)
+
+(* Permission to use, copy, modify, and distribute this software for any
+* purpose with or without fee is hereby granted, provided that the above
+* copyright notice and this permission notice appear in all copies.
+*
+* THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+* WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+* MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+* ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+* WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+* ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+* OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+*)
 
 open Lwt.Infix;;
 open Printf;;
@@ -127,7 +139,7 @@ module Make (Console:V1_LWT.CONSOLE)
             (*send DHCP Offer*)
             output_broadcast t ~xid:xid ~ciaddr:0 ~yiaddr:address ~siaddr:serverIP ~giaddr:giaddr ~secs:secs ~chaddr:chaddr ~flags:flags ~options:options;
 		    |`Request -> (*TODO: case split request and renewal/verification (RFC page 30)*)
-          (*let server_identifier = find packet (function `Server_identifier id -> id |_ -> Ipaddr.V4.of_string "0.0.0.0")*) in (*TODO: handle case where id is not specified (i.e. error)*)*)
+         (* let server_identifier = find packet (function `Server_identifier id -> id |_ -> Ipaddr.V4.of_string "0.0.0.0")in *) (*TODO: handle case where id is not specified (i.e. error)*)
           if (siaddr=serverIP&&List.mem_assoc client_identifier (!reserved_addresses) && ((List.assoc client_identifier (!reserved_addresses)).xid=xid)) then ( (*the client is requesting the IP address, this is not a renewal*)
             let address = (List.assoc client_identifier (!reserved_addresses)).ip_address in
             in_use_addresses:=(client_identifier,{ip_address=address;xid=xid;timestamp=Clock.time()})::!in_use_addresses;
