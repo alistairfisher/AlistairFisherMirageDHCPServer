@@ -83,7 +83,7 @@ module Make (Console:V1_LWT.CONSOLE)
       Udp.write ~dest_ip: dest_ip_address ~source_port:67 ~dest_port:68 t.udp buf;;
   
     (*unwrap DHCP packet, case split depending on the contents*)
-    let input t ~src ~dst:_ ~srcport:_ ~reserved_addresses ~in_use_addresses ~available_addresses ~serverIP ~leaseLength buf = (*lots of duplication with client, need to combine into one unit*)
+    let input t ~src ~dst:_ ~srcport:_ ~reserved_addresses ~in_use_addresses ~available_addresses ~serverIP ~leaseLength ~server_parameters buf = (*lots of duplication with client, need to combine into one unit*)
 	    let ciaddr = Ipaddr.V4.of_int32 (get_dhcp_ciaddr buf) in
       let yiaddr = Ipaddr.V4.of_int32 (get_dhcp_yiaddr buf) in
 	    let siaddr = Ipaddr.V4.of_int32 (get_dhcp_siaddr buf) in
@@ -113,6 +113,7 @@ module Make (Console:V1_LWT.CONSOLE)
           sprintf "chaddr %s sname %s file %s" (chaddr) (copy_dhcp_sname buf) (copy_dhcp_file buf) ]
       >>= fun () ->
       let open Dhcpv4_option.Packet in
+      let open Dhcp_serverv4_options in
       let client_identifier = match find packet (function `Client_id id -> Some id |_ -> None) with
         |None -> chaddr
         |Some x-> x
@@ -122,7 +123,7 @@ module Make (Console:V1_LWT.CONSOLE)
           let address = List.hd (!available_addresses) in
             reserved_addresses:=(client_identifier,{ip_address=address;xid=xid;timestamp=Clock.time()})::(!reserved_addresses);
 			      available_addresses:=List.tl(!available_addresses);
-            let options = { Dhcpv4_option.Packet.op=`Offer; opts= []} in
+            let options = make_options ~client_requests: (packet.opts) ~serverIP: serverIP ~lease_length:leaseLength ~message_type:`Offer in
             (*send DHCP Offer*)
             output_broadcast t ~xid:xid ~ciaddr:0 ~yiaddr:address ~siaddr:serverIP ~giaddr:giaddr ~secs:secs ~chaddr:chaddr ~flags:flags ~options:options;
 		    |`Request -> (*TODO: case split request and renewal/verification (RFC page 30)*)
@@ -130,8 +131,8 @@ module Make (Console:V1_LWT.CONSOLE)
           if (siaddr=serverIP&&List.mem_assoc client_identifier (!reserved_addresses) && ((List.assoc client_identifier (!reserved_addresses)).xid=xid)) then ( (*the client is requesting the IP address, this is not a renewal*)
             let address = (List.assoc client_identifier (!reserved_addresses)).ip_address in
             in_use_addresses:=(client_identifier,{ip_address=address;xid=xid;timestamp=Clock.time()})::!in_use_addresses;
-            reserved_addresses:=List.remove_assoc client_identifier (!reserved_addresses); (*this is hacky, remove it at some point*)
-            let options = { Dhcpv4_option.Packet.op=`Ack; opts= []} in
+            reserved_addresses:=List.remove_assoc client_identifier (!reserved_addresses);
+            let options = make_options ~client_requests: (packet.opts) ~serverIP: serverIP ~lease_length:leaseLength ~message_type:`Ack in
             output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:address ~siaddr:serverIP ~giaddr:giaddr ~secs:secs ~chaddr:chaddr ~flags:flags ~options:options;
           )
           else Lwt.return_unit;
@@ -148,7 +149,8 @@ module Make (Console:V1_LWT.CONSOLE)
             available_addresses:=address::(!available_addresses);
             in_use_addresses:=List.remove_assoc client_identifier (!in_use_addresses));
           Lwt.return_unit;
-        | _ ->Console.log_s t.c "Bad packet!";;
+        |`Inform -> Console.log_s t.c "Inform received"; (*TODO: construct real packet*) 
+        | _ ->Lwt.return_unit;; (*this is a packet meant for a client*)
      
     let rec garbage_collect ~reserved_addresses ~in_use_addresses ~leaselength ~collection_interval= (*TODO: accomodate infinite lease*)
       let rec gc l leaselength = match l with
