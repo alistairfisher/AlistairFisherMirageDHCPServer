@@ -1,5 +1,5 @@
 (*Initial DHCP- need to migrate to IRMIN, no static allocation,no additional information (DHCPInform),server IP is always this server,
-no support for requested IP (in options),no address selection based on giaddr, no probing before reusing address*)
+,no address selection based on giaddr, no probing before reusing address*)
 
 (*Features implemented:
 
@@ -9,7 +9,7 @@ no support for requested IP (in options),no address selection based on giaddr, n
 * Necessary options: serverID and lease length
 * Requested lease
 * Decline and release
-
+* Requested address
 
 *)
 
@@ -160,9 +160,16 @@ module Make (Console:V1_LWT.CONSOLE)
     in
     match packet.op with
       |`Discover ->
-        let address = List.hd (!available_addresses) in
+        let address = match find packet (function `Requested_ip requested_address -> Some requested_address | _ -> None) with
+          |None-> List.hd (!available_addresses)
+          |Some requested_address ->
+            if List.mem requested_address (!available_addresses) then requested_address
+            else List.hd (!available_addresses)
+        in
         reserved_addresses:=(client_identifier,{ip_address=address;xid=xid;reservation_timestamp=Clock.time()})::(!reserved_addresses);
-        available_addresses:=List.tl(!available_addresses);
+        let address_filter f = (f=address)
+        in
+        available_addresses:=List.filter address_filter (!available_addresses);
         let options = make_options ~client_requests: (packet.opts) ~serverIP: serverIP ~lease_length:leaseLength ~message_type:`Offer in
         (*send DHCP Offer*)
         output_broadcast t ~xid:xid ~ciaddr:0 ~yiaddr:address ~siaddr:serverIP ~giaddr:giaddr ~secs:secs ~chaddr:chaddr ~flags:flags ~options:options;
@@ -171,9 +178,10 @@ module Make (Console:V1_LWT.CONSOLE)
           |Some x -> x
           |None -> raise (No_server_ID client_identifier)
         in
-        if (server_identifier=serverIP&&List.mem_assoc client_identifier (!reserved_addresses) && ((List.assoc client_identifier (!reserved_addresses)).xid=xid)) then ( (*the client is requesting the IP address, this is not a renewal*)
+        if (server_identifier=serverIP && ((List.assoc client_identifier (!reserved_addresses)).xid=xid)) then ( (*the client is requesting the IP address, this is not a renewal. Need error handling*)
           let address = (List.assoc client_identifier (!reserved_addresses)).ip_address in
-          in_use_addresses:=({identifier=client_identifier;client_ip_address=address},{lease_length=leaseLength;lease_timestamp=Clock.time()})::!in_use_addresses;
+          let new_reservation = {identifier=client_identifier;client_ip_address=address},{lease_length=leaseLength;lease_timestamp=Clock.time()} in
+          in_use_addresses:=new_reservation::!in_use_addresses;
           reserved_addresses:=List.remove_assoc client_identifier (!reserved_addresses);
           let options = make_options ~client_requests: (packet.opts) ~serverIP: serverIP ~lease_length:leaseLength ~message_type:`Ack in
           output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:address ~siaddr:serverIP ~giaddr:giaddr ~secs:secs ~chaddr:chaddr ~flags:flags ~options:options;
