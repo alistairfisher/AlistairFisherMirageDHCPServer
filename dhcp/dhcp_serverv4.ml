@@ -1,5 +1,5 @@
 (*Initial DHCP- need to migrate to IRMIN, dynamic allocation only,no additional information (DHCPInform),server IP is always this server, no renewals or rebinding cases, no init-reboot case,
-,no address selection based on giaddr, no probing before reusing address, customisation of hardware options*)
+,no address selection based on giaddr, no probing before reusing address, customisation of hardware options, reading params from config file*)
 
 (*TODO: look closely at giaddr, requested IP in DHCPRequest*)
 
@@ -157,9 +157,13 @@ module Make (Console:V1_LWT.CONSOLE)
       |None -> chaddr
       |Some id-> id
     in
-    let leaseLength = match find packet (function `Lease_time requested_lease -> Some requested_lease |_ -> None) with
+    let lease_length = match find packet (function `Lease_time requested_lease -> Some requested_lease |_ -> None) with
       |None -> max_lease
       |Some requested_lease-> Int32.of_int(min (Int32.to_int requested_lease) (Int32.to_int max_lease))
+    in
+    let client_requests = match find packet (function `Parameter_request params -> Some params |_ -> None) with
+      |None -> []
+      |Some params -> params
     in
     match packet.op with
       |`Discover ->
@@ -173,7 +177,7 @@ module Make (Console:V1_LWT.CONSOLE)
         let address_filter f = (f=address)
         in
         available_addresses:=List.filter address_filter !available_addresses;
-        let options = make_options ~client_requests: (packet.opts) ~serverIP: serverIP ~lease_length:leaseLength ~message_type:`Offer in
+        let options = make_options_lease ~client_requests: client_requests ~server_parameters:server_parameters ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Offer in
         (*send DHCP Offer*)
         output_broadcast t ~xid:xid ~ciaddr:0 ~yiaddr:address ~siaddr:serverIP ~giaddr:giaddr ~secs:secs ~chaddr:chaddr ~flags:flags ~options:options;
       |`Request ->
@@ -183,10 +187,10 @@ module Make (Console:V1_LWT.CONSOLE)
             in
             if (server_identifier=serverIP && ((List.assoc client_identifier !reserved_addresses).xid=xid)) then ( (*the client is requesting the IP address, this is not a renewal. Need error handling*)
               let address = (List.assoc client_identifier !reserved_addresses).ip_address in
-              let new_reservation = {identifier=client_identifier;client_ip_address=address},{lease_length=leaseLength;lease_timestamp=Clock.time()} in
+              let new_reservation = {identifier=client_identifier;client_ip_address=address},{lease_length=lease_length;lease_timestamp=Clock.time()} in
               in_use_addresses:=new_reservation::!in_use_addresses;
               reserved_addresses:=List.remove_assoc client_identifier !reserved_addresses;
-              let options = make_options ~client_requests: (packet.opts) ~serverIP: serverIP ~lease_length:leaseLength ~message_type:`Ack in
+              let options = make_options_lease ~client_requests: client_requests ~server_parameters:server_parameters ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
               output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:address ~siaddr:serverIP ~giaddr:giaddr ~secs:secs ~chaddr:chaddr ~flags:flags ~options:options;
             )
             else Lwt.return_unit;
@@ -207,7 +211,9 @@ module Make (Console:V1_LWT.CONSOLE)
           available_addresses:=ciaddr::!available_addresses;
           in_use_addresses:=List.remove_assoc entry !in_use_addresses);
           Lwt.return_unit;
-      |`Inform -> Console.log_s t.c "Inform received"; (*TODO: construct real packet*) 
+      |`Inform ->
+        let options = make_options_no_lease ~client_requests:client_requests ~serverIP:serverIP ~server_parameters:server_parameters ~message_type:`Ack in
+        output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:yiaddr ~siaddr:serverIP ~giaddr:giaddr ~secs:secs ~chaddr:chaddr ~flags:flags ~options:options;
       | _ ->Lwt.return_unit;; (*this is a packet meant for a client*)
       
   let rec garbage_collect ~reserved_addresses ~in_use_addresses ~collection_interval=
@@ -223,7 +229,7 @@ module Make (Console:V1_LWT.CONSOLE)
         if (lease != 0xffffffff && (int_of_float(Clock.time()-.(snd h).lease_timestamp) > lease)) then gc_in_use t else h::(gc_in_use t)
     in Time.sleep(collection_interval)>>=fun()->(reserved_addresses:=(gc_reserved !reserved_addresses));(in_use_addresses:=(gc_in_use !in_use_addresses));garbage_collect ~reserved_addresses:reserved_addresses ~in_use_addresses:in_use_addresses ~collection_interval:collection_interval;;
         
-    (*let dhcp ~scopebottom ~scopetop ~leaselength ~serverIP ~serverName ~udp ~probe:true ~subnetmask:NONE ~DNSservers:NONE ~ ~= (*note: lease time is in seconds. 0xffffffff is reserved for infinity*)
+    (*let dhcp ~scopebottom ~scopetop ~lease_length ~serverIP ~serverName ~udp ~probe:true ~subnetmask:NONE ~DNSservers:NONE ~ ~= (*note: lease time is in seconds. 0xffffffff is reserved for infinity*)
       let reserved_addresses:(string*reserved_address) list ref = ref [] in
       let in_use_addresses:(string*in_use_address) list ref = ref [] in
     	let available_addresses = ref listgen(scopebottom,scopetop) in*)
