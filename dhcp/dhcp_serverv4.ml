@@ -1,5 +1,8 @@
-(*Initial DHCP- need to migrate to IRMIN, no static allocation,no additional information (DHCPInform),server IP is always this server,
+(*Initial DHCP- need to migrate to IRMIN, no static allocation,no additional information (DHCPInform),server IP is always this server, no renewals or rebinding cases, no init-reboot case,
 ,no address selection based on giaddr, no probing before reusing address*)
+
+(*TODO: look closely at giaddr
+INIT-REBOOT*)
 
 (*Features implemented:
 
@@ -81,10 +84,10 @@ module Make (Console:V1_LWT.CONSOLE)
     BootReply
   } as uint8_t
     
-  let rec list_gen(bottom,top) =(*TODO: need to insert into main dhcp function*)
+  let rec list_gen(bottom,top) = (*TODO: need to insert into main dhcp function*)
     let a = Ipaddr.V4.to_int32 bottom in
     let b = Ipaddr.V4.to_int32 top in
-    if (a>b) then []
+    if a>b then []
     else bottom::list_gen(Ipaddr.V4.of_int32(Int32.add a Int32.one),top);;
     
   let output_broadcast t ~xid ~ciaddr ~yiaddr ~siaddr ~giaddr ~secs ~chaddr ~flags ~options =
@@ -110,15 +113,16 @@ module Make (Console:V1_LWT.CONSOLE)
     set_dhcp_file (Bytes.make 128 '\000') 0 buf;
     set_dhcp_cookie buf 0x63825363l;
     Cstruct.blit_from_string options 0 buf sizeof_dhcp options_len;
-    let dest_ip_address = if (flags = 0) then yiaddr (*this is not future proof: currently only 1 flag is used so yiaddr is used iff flags = 0, this may change in the future*)
-      else Ipaddr.V4.broadcast
+    let dest_ip_address = match flags with 
+      |0 -> yiaddr (*this is not future proof: currently only 1 flag is used so yiaddr is used iff flags = 0, this may change in the future*)
+      |_ -> Ipaddr.V4.broadcast
     in
     let buf = Cstruct.set_len buf (sizeof_dhcp + options_len) in
       Console.log_s t.c (sprintf "Sending DHCP packet (length %d)" total_len)
       >>= fun () ->
       Udp.write ~dest_ip: dest_ip_address ~source_port:67 ~dest_port:68 t.udp buf;;
   
-    (*unwrap DHCP packet, case split depending on the contents*)
+  (*unwrap DHCP packet, case split depending on the contents*)
   let input t ~src ~dst:_ ~srcport:_ ~reserved_addresses ~in_use_addresses ~available_addresses ~serverIP ~max_lease ~server_parameters buf = (*lots of duplication with client, need to combine into one unit*)
     let ciaddr = Ipaddr.V4.of_int32 (get_dhcp_ciaddr buf) in
     let yiaddr = Ipaddr.V4.of_int32 (get_dhcp_yiaddr buf) in
@@ -161,44 +165,44 @@ module Make (Console:V1_LWT.CONSOLE)
     match packet.op with
       |`Discover ->
         let address = match find packet (function `Requested_ip requested_address -> Some requested_address | _ -> None) with
-          |None-> List.hd (!available_addresses)
+          |None-> List.hd !available_addresses
           |Some requested_address ->
-            if List.mem requested_address (!available_addresses) then requested_address
-            else List.hd (!available_addresses)
+            if List.mem requested_address !available_addresses then requested_address
+            else List.hd !available_addresses
         in
-        reserved_addresses:=(client_identifier,{ip_address=address;xid=xid;reservation_timestamp=Clock.time()})::(!reserved_addresses);
+        reserved_addresses:=(client_identifier,{ip_address=address;xid=xid;reservation_timestamp=Clock.time()})::!reserved_addresses;
         let address_filter f = (f=address)
         in
-        available_addresses:=List.filter address_filter (!available_addresses);
+        available_addresses:=List.filter address_filter !available_addresses;
         let options = make_options ~client_requests: (packet.opts) ~serverIP: serverIP ~lease_length:leaseLength ~message_type:`Offer in
         (*send DHCP Offer*)
         output_broadcast t ~xid:xid ~ciaddr:0 ~yiaddr:address ~siaddr:serverIP ~giaddr:giaddr ~secs:secs ~chaddr:chaddr ~flags:flags ~options:options;
       |`Request -> (*TODO: case split request and renewal/verification (RFC page 30)*)
         let server_identifier = match (find packet(function `Server_identifier id ->Some id |_ -> None)) with
           |Some x -> x
-          |None -> raise (No_server_ID client_identifier)
+          |None -> raise (No_server_ID client_identifier) (*TODO: this is completely wrong, it SHOULD start a renewal, rebinding (case split on ciaddr) and reboot*)
         in
-        if (server_identifier=serverIP && ((List.assoc client_identifier (!reserved_addresses)).xid=xid)) then ( (*the client is requesting the IP address, this is not a renewal. Need error handling*)
-          let address = (List.assoc client_identifier (!reserved_addresses)).ip_address in
+        if (server_identifier=serverIP && ((List.assoc client_identifier !reserved_addresses).xid=xid)) then ( (*the client is requesting the IP address, this is not a renewal. Need error handling*)
+          let address = (List.assoc client_identifier !reserved_addresses).ip_address in
           let new_reservation = {identifier=client_identifier;client_ip_address=address},{lease_length=leaseLength;lease_timestamp=Clock.time()} in
           in_use_addresses:=new_reservation::!in_use_addresses;
-          reserved_addresses:=List.remove_assoc client_identifier (!reserved_addresses);
+          reserved_addresses:=List.remove_assoc client_identifier !reserved_addresses;
           let options = make_options ~client_requests: (packet.opts) ~serverIP: serverIP ~lease_length:leaseLength ~message_type:`Ack in
           output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:address ~siaddr:serverIP ~giaddr:giaddr ~secs:secs ~chaddr:chaddr ~flags:flags ~options:options;
         )
         else Lwt.return_unit;
         (*TODO: else remove association from reserved, also remember separate 0 case*)
       |`Decline ->
-        if (List.mem_assoc client_identifier (!reserved_addresses)) then
-          let address = (List.assoc chaddr (!reserved_addresses)).ip_address in
+        if (List.mem_assoc client_identifier !reserved_addresses) then
+          let address = (List.assoc chaddr !reserved_addresses).ip_address in
           in_use_addresses:=({identifier="Unknown";client_ip_address=address}, {lease_length=Int32.max_int;lease_timestamp=Clock.time()})::!in_use_addresses; (*must notify network admin*)
           reserved_addresses:=List.tl(!reserved_addresses); Lwt.return_unit;
         else Lwt.return_unit;
       |`Release -> (*this may give errors with duplicate packets, should wipe ALL entries*)
         let entry = {identifier=client_identifier;client_ip_address=ciaddr} in
-        if (List.mem_assoc entry (!in_use_addresses)) then (
-          available_addresses:=ciaddr::(!available_addresses);
-          in_use_addresses:=List.remove_assoc entry (!in_use_addresses));
+        if (List.mem_assoc entry !in_use_addresses) then (
+          available_addresses:=ciaddr::!available_addresses;
+          in_use_addresses:=List.remove_assoc entry !in_use_addresses);
           Lwt.return_unit;
       |`Inform -> Console.log_s t.c "Inform received"; (*TODO: construct real packet*) 
       | _ ->Lwt.return_unit;; (*this is a packet meant for a client*)
