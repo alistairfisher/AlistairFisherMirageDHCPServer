@@ -95,8 +95,8 @@ Library dhcpv4
                       ipaddr,
                       cstruct,
                       lwt,
-                      tcpip.udp
-
+                      tcpip.udp,
+                      core
 Library "tcpip-stack-direct"
   CompiledObject:     best
   Path:               lib
