@@ -1,5 +1,5 @@
 (*Initial DHCP- need to migrate to IRMIN, dynamic allocation only,no additional information (DHCPInform),server IP is always this server, no renewals or rebinding cases, no init-reboot case,
-,no address selection based on giaddr, no probing before reusing address, customisation of hardware options, reading params from config file*)
+,no address selection based on giaddr, no probing before reusing address, customisation of hardware options, reading params from config file, account for clock drift, can only serve 1 subnet*)
 
 (*TODO: look closely at giaddr, requested IP in DHCPRequest*)
 
@@ -82,6 +82,8 @@ module Make (Console:V1_LWT.CONSOLE)
     BootRequest = 1;
     BootReply
   } as uint8_t
+  
+  exception Error of string;;
     
   let rec list_gen(bottom,top) = (*TODO: need to insert into main dhcp function*)
     let a = Ipaddr.V4.to_int32 bottom in
@@ -137,6 +139,10 @@ module Make (Console:V1_LWT.CONSOLE)
   
   let add_address address list = 
     list:=address::(!list)
+  
+  let remove_available_address t address =
+    let address_filter f = (f=address) in
+    t.available_addresses:=List.filter address_filter !(t.available_addresses);;
   
   (*unwrap DHCP packet, case split depending on the contents*)
   let input t ~serverIP ~default_lease ~max_lease ~server_parameters ~src:_ ~dst:_ ~src_port:_ buf = (*lots of duplication with client, need to combine into one unit*)
@@ -194,8 +200,7 @@ module Make (Console:V1_LWT.CONSOLE)
         let new_reservation = client_identifier,{ip_address=address;xid=xid;reservation_timestamp=Clock.time()} in
         add_address new_reservation t.reserved_addresses;
         Console.log t.c (sprintf "Now %d reserved addresses" (List.length !(t.reserved_addresses)));
-        let address_filter f = (f=address) in
-        t.available_addresses:=List.filter address_filter !(t.available_addresses);
+        remove_available_address t address;
         let options = make_options_with_lease ~client_requests: client_requests ~server_parameters:server_parameters ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Offer in
         (*send DHCP Offer*)
         output_broadcast t ~xid:xid ~ciaddr:0 ~yiaddr:address ~siaddr:serverIP ~giaddr:giaddr ~secs:secs ~chaddr:chaddr ~flags:flags ~options:options;
@@ -216,8 +221,20 @@ module Make (Console:V1_LWT.CONSOLE)
             )
             else Lwt.return_unit;
           |None -> (*this is a renewal, rebinding or init_reboot*)
-            if (ciaddr = Ipaddr.V4.unspecified) then (*client in init_reboot*)
-              Lwt.return_unit
+            if (ciaddr = Ipaddr.V4.unspecified) then (*client in init-reboot*)
+              let requested_IP = match find packet (function `Requested_ip ip -> Some ip |_ -> None) with
+                |None -> raise Error "init-reboot with no requested IP"
+                |Some ip -> ip
+              in
+              if (List.mem requested_IP !(t.available_addresses)) then (*address is available, lease to client*)
+                let new_reservation = {identifier=client_identifier;client_ip_address=requested_IP},{lease_length=lease_length;lease_timestamp=Clock.time()} in
+                add_address new_reservation t.in_use_addresses;
+                remove_available_address t requested_IP;
+                let options = make_options_with_lease ~client_requests: client_requests ~server_parameters:server_parameters ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
+                output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:requested_IP ~siaddr:serverIP ~giaddr:giaddr ~secs:secs ~chaddr:chaddr ~flags:flags ~options:options;
+              else (*address is not available, send Nak*)
+                let options = make_options_without_lease ~serverIP:serverIP ~message_type:`Nak in
+                output_broadcast t ~xid:xid ~ciaddr:(Ipaddr.V4.unspecified) ~yiaddr:(Ipaddr.V4.unspecified) ~siaddr:(Ipaddr.V4.unspecified) ~giaddr:giaddr ~secs:secs ~chaddr:chaddr ~flags:flags ~options:options;
             else (*client in renew or rebind*)
               Lwt.return_unit;)
       |`Decline ->
