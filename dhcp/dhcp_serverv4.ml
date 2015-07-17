@@ -47,7 +47,7 @@
 open Lwt.Infix;;
 open Printf;;
 
-module Main (Console:V1_LWT.CONSOLE)
+module Make (Console:V1_LWT.CONSOLE)
   (Clock:V1.CLOCK)
   (Stack:V1_LWT.STACKV4) = struct
 
@@ -276,10 +276,11 @@ module Main (Console:V1_LWT.CONSOLE)
     serverThread t lease_length serverIP server_parameters;;
     
   let start ~c ~clock ~stack= (*note: lease time is in seconds. 0xffffffff is reserved for infinity*)
-    let scopebottom = Ipaddr.V4.unspecified in
-    let scopetop = Ipaddr.V4.of_string_exn("0.0.0.100") in
-    let lease_length  = Int32.of_int(3000) in
-    let serverIP = Ipaddr.V4.of_string_exn("172.17.26.57") in
+    let parameters = Dhcp_serverv4_config_parser in
+    let scopebottom = parameters.globals.scope_bottom in
+    let scopetop = parameters.globals.scope_top in
+    let lease_length  = parameters.globals.default_lease_length in
+    let serverIP = Stack.IPV4.get_ipv4 (Stack.ipv4 t.stack) in
     let server_parameters = [] in
     let reserved_addresses = ref [] in
     let in_use_addresses= ref [] in
