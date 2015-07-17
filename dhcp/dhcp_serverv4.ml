@@ -15,18 +15,6 @@
 
 *)
 
-(*TESTING CHANGES
-
-* Removed redundant exception
-* Added t to GC
-* removed parameters from input
-* used client hardware address and make sure to extract from packet properly
-* new implementations for bottom 3 functions: copy/paste...
-
-*)
-
-
-
 
 (* Permission to use, copy, modify, and distribute this software for any
 * purpose with or without fee is hereby granted, provided that the above
@@ -40,9 +28,6 @@
 * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 *)
-
-
-(*Testing: creating packets, receiving packets, state of the list etc, lease expiration. Print all received state.*)
 
 open Lwt.Infix;;
 open Printf;;
@@ -154,7 +139,7 @@ module Make (Console:V1_LWT.CONSOLE)
     list:=address::(!list)
   
   (*unwrap DHCP packet, case split depending on the contents*)
-  let input t ~serverIP ~max_lease ~server_parameters ~src:_ ~dst:_ ~src_port:_ buf = (*lots of duplication with client, need to combine into one unit*)
+  let input t ~serverIP ~default_lease ~max_lease ~server_parameters ~src:_ ~dst:_ ~src_port:_ buf = (*lots of duplication with client, need to combine into one unit*)
     let ciaddr = Ipaddr.V4.of_int32 (get_dhcp_ciaddr buf) in
     let yiaddr = Ipaddr.V4.of_int32 (get_dhcp_yiaddr buf) in
     let siaddr = Ipaddr.V4.of_int32 (get_dhcp_siaddr buf) in
@@ -189,7 +174,7 @@ module Make (Console:V1_LWT.CONSOLE)
       |Some id-> Console.log t.c (sprintf "Client identifer set to %s" id);id
     in
     let lease_length = match find packet (function `Lease_time requested_lease -> Some requested_lease |_ -> None) with
-      |None -> max_lease
+      |None -> default_lease
       |Some requested_lease-> Int32.of_int(min (Int32.to_int requested_lease) (Int32.to_int max_lease))
     in
     let client_requests = match find packet (function `Parameter_request params -> Some params |_ -> None) with
@@ -271,20 +256,21 @@ module Make (Console:V1_LWT.CONSOLE)
     in OS.Time.sleep(collection_interval)>>=fun()->(t.reserved_addresses:=(gc_reserved !(t.reserved_addresses)));(t.in_use_addresses:=(gc_in_use !(t.in_use_addresses)));
       garbage_collect t collection_interval;;
 
-  let rec serverThread t lease_length serverIP server_parameters=
-    Stack.listen_udpv4 (t.stack) 67 (input t ~serverIP:serverIP ~max_lease:lease_length ~server_parameters:server_parameters);
+  let rec serverThread t default_lease max_lease serverIP server_parameters=
+    Stack.listen_udpv4 (t.stack) 67 (input t ~serverIP:serverIP ~default_lease:default_lease ~max_lease:max_lease ~server_parameters:server_parameters);
     serverThread t lease_length serverIP server_parameters;;
     
   let start ~c ~clock ~stack= (*note: lease time is in seconds. 0xffffffff is reserved for infinity*)
     let parameters = Dhcp_serverv4_config_parser in
     let scopebottom = parameters.globals.scope_bottom in
     let scopetop = parameters.globals.scope_top in
-    let lease_length  = parameters.globals.default_lease_length in
+    let default_lease  = parameters.globals.default_lease_length in
+    let max_lease = parameters.globals.max_lease_length in
     let serverIP = Stack.IPV4.get_ipv4 (Stack.ipv4 t.stack) in
     let server_parameters = [] in
     let reserved_addresses = ref [] in
     let in_use_addresses= ref [] in
     let available_addresses = ref (list_gen (scopebottom,scopetop)) in
     let t = {c;stack;reserved_addresses;in_use_addresses;available_addresses} in
-    Lwt.join([serverThread t lease_length serverIP server_parameters;garbage_collect t 60.0]);; 
+    Lwt.join([serverThread t default_lease max_lease serverIP server_parameters;garbage_collect t 60.0]);; 
 end
