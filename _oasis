@@ -96,7 +96,10 @@ Library dhcpv4
                       cstruct,
                       lwt,
                       tcpip.udp,
-                      core
+                      core,
+                      threads,
+                      os
+                      
 Library "tcpip-stack-direct"
   CompiledObject:     best
   Path:               lib

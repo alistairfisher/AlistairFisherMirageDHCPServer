@@ -1,7 +1,5 @@
-(*Initial DHCP- need to migrate to IRMIN, dynamic allocation only,no additional information (DHCPInform),server IP is always this server, no renewals or rebinding cases, no init-reboot case,
-,no address selection based on giaddr, no probing before reusing address, customisation of hardware options, reading params from config file, account for clock drift, can only serve 1 subnet*)
-
-(*TODO: look closely at giaddr, requested IP in DHCPRequest*)
+(*Initial DHCP- need to migrate to IRMIN, dynamic allocation only,no additional information (DHCPInform),server IP is always this server, no renewals or rebinding cases,
+no probing before reusing address, customisation of hardware options, reading params from config file (WIP), account for clock drift, can only serve 1 subnet*)
 
 (*Features implemented:
 
@@ -102,7 +100,7 @@ module Make (Console:V1_LWT.CONSOLE)
     (*let params = parameter_request ~c_requests:client requests ~s_parameters:parameters_list in*)
     { op = message_type; opts= [`Lease_time lease_length;`Server_identifier serverIP;`End]};;
     
-  let make_options_no_lease ~client_requests ~server_parameters ~serverIP ~message_type =
+  let make_options_without_lease ~client_requests ~server_parameters ~serverIP ~message_type =
     let open Dhcpv4_option.Packet in
     {op = message_type;opts = [`Server_identifier serverIP;`End]};;
     
@@ -223,7 +221,7 @@ module Make (Console:V1_LWT.CONSOLE)
           |None -> (*this is a renewal, rebinding or init_reboot*)
             if (ciaddr = Ipaddr.V4.unspecified) then (*client in init-reboot*)
               let requested_IP = match find packet (function `Requested_ip ip -> Some ip |_ -> None) with
-                |None -> raise Error "init-reboot with no requested IP"
+                |None -> raise (Error "init-reboot with no requested IP")
                 |Some ip -> ip
               in
               if (List.mem requested_IP !(t.available_addresses)) then (*address is available, lease to client*)
@@ -233,7 +231,7 @@ module Make (Console:V1_LWT.CONSOLE)
                 let options = make_options_with_lease ~client_requests: client_requests ~server_parameters:server_parameters ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
                 output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:requested_IP ~siaddr:serverIP ~giaddr:giaddr ~secs:secs ~chaddr:chaddr ~flags:flags ~options:options;
               else (*address is not available, send Nak*)
-                let options = make_options_without_lease ~serverIP:serverIP ~message_type:`Nak in
+                let options = make_options_without_lease ~serverIP:serverIP ~message_type:`Nak ~client_requests: client_requests ~server_parameters:server_parameters in
                 output_broadcast t ~xid:xid ~ciaddr:(Ipaddr.V4.unspecified) ~yiaddr:(Ipaddr.V4.unspecified) ~siaddr:(Ipaddr.V4.unspecified) ~giaddr:giaddr ~secs:secs ~chaddr:chaddr ~flags:flags ~options:options;
             else (*client in renew or rebind*)
               Lwt.return_unit;)
@@ -254,13 +252,13 @@ module Make (Console:V1_LWT.CONSOLE)
           t.in_use_addresses:=List.remove_assoc entry !(t.in_use_addresses));
           Lwt.return_unit;
       |`Inform ->
-        let options = make_options_no_lease ~client_requests:client_requests ~serverIP:serverIP ~server_parameters:server_parameters ~message_type:`Ack in
+        let options = make_options_without_lease ~client_requests:client_requests ~serverIP:serverIP ~server_parameters:server_parameters ~message_type:`Ack in
         output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:yiaddr ~siaddr:serverIP ~giaddr:giaddr ~secs:secs ~chaddr:chaddr ~flags:flags ~options:options;
       | _ ->Lwt.return_unit;; (*this is a packet meant for a client*)
       
   let rec garbage_collect t collection_interval=
     Console.log t.c (sprintf "GC running!");
-    let rec gc_reserved l = match (l) with
+    let rec gc_reserved =function
       |[] -> []
       |h::t -> if (Clock.time()-.(snd h).reservation_timestamp > collection_interval) then (gc_reserved t)
         else (gc_reserved t)
@@ -270,20 +268,24 @@ module Make (Console:V1_LWT.CONSOLE)
       |h::t -> 
         let lease = Int32.to_int((snd h).lease_length) in
         if (lease != 0xffffffff && (int_of_float(Clock.time()-.(snd h).lease_timestamp) > lease)) then gc_in_use t else h::(gc_in_use t)
-    in OS.Time.sleep(collection_interval)>>=fun()->(t.reserved_addresses:=(gc_reserved !(t.reserved_addresses)));(t.in_use_addresses:=(gc_in_use !(t.in_use_addresses)));
-      garbage_collect t collection_interval;;
+    in (Unix.sleep (int_of_float(collection_interval)));t.reserved_addresses:=(gc_reserved !(t.reserved_addresses));(t.in_use_addresses:=(gc_in_use !(t.in_use_addresses))); (*TODO: switch to time module.sleep*)
+      (garbage_collect t collection_interval);;
 
   let rec serverThread t default_lease max_lease serverIP server_parameters=
     Stack.listen_udpv4 (t.stack) 67 (input t ~serverIP:serverIP ~default_lease:default_lease ~max_lease:max_lease ~server_parameters:server_parameters);
-    serverThread t lease_length serverIP server_parameters;;
-    
+    serverThread t default_lease max_lease serverIP server_parameters;;
+  
+  let get = function
+  |Some x->x
+  |None -> raise (Error "Undefined parameter");;
+  
   let start ~c ~clock ~stack= (*note: lease time is in seconds. 0xffffffff is reserved for infinity*)
-    let parameters = Dhcp_serverv4_config_parser in
-    let scopebottom = parameters.globals.scope_bottom in
-    let scopetop = parameters.globals.scope_top in
-    let default_lease  = parameters.globals.default_lease_length in
-    let max_lease = parameters.globals.max_lease_length in
-    let serverIP = Stack.IPV4.get_ipv4 (Stack.ipv4 t.stack) in
+    let parameters = Dhcp_serverv4_config_parser.read_DHCP_config in
+    let scopebottom = get(!(parameters.globals.scope_bottom)) in
+    let scopetop = get(!(parameters.globals.scope_top)) in
+    let default_lease  = get(!(parameters.globals.default_lease_length)) in
+    let max_lease = get(!(parameters.globals.max_lease_length)) in
+    let serverIP = Stack.IPV4.get_ip (Stack.ipv4 stack) in
     let server_parameters = [] in
     let reserved_addresses = ref [] in
     let in_use_addresses= ref [] in
