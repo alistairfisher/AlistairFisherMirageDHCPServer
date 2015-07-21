@@ -26,8 +26,9 @@ let cut_at_semicolon string =
   |None -> string
 
 let strings_to_ip_addresses list =
-  List.map (Ipaddr.V4.of_string_exn) list;;
-  
+  let no_commas = List.map (Str.global_replace (Str.regexp ",") "") list in
+  List.map (Ipaddr.V4.of_string_exn) no_commas;;  
+
 exception Unknown_option of string;;
 
 let read_option tokens =
@@ -47,16 +48,18 @@ let read_option tokens =
     |"domain-name" -> `Domain_name value
     |"default-lease-time" -> `Lease_time (Int32.of_string value)
     |"max-lease-time" -> `Lease_time (Int32.of_string value)
-    |_-> raise (Unknown_option value)
+    |"domain-search" -> `Domain_search value
+    |_-> raise (Unknown_option dhcp_option)
   with
   |(Ipaddr.Parse_error _) -> raise (Parse_error "Invalid option: misformatted ip address") (*TODO: use sprintf to report the incorrect option*)
   |(Failure _) -> raise (Parse_error "No enough arguments for option")
 
 exception Undefined_range_for_subnet of string;;
+exception Unknown_subnet_parameter of string;;
   
 let rec read_subnet input_channel=
   let next_line = cut_at_semicolon(input_line input_channel) in
-  let separator = Str.regexp " +" in
+  let separator = Str.regexp "\( \|\t\)+" in
   let tokens = Str.split separator next_line in
   try
     let first_token = List.hd tokens in
@@ -74,18 +77,19 @@ let rec read_subnet input_channel=
       current_subnet_parameters.scope_bottom:= scope_bottom;
       current_subnet_parameters.scope_top:= scope_top;
       current_subnet_parameters
-    |"default_lease_length" ->
+    |"default-lease-time" ->
       let value = List.nth tokens 1 in
       let lease_length = Int32.of_string value in
       let current_options = read_subnet input_channel in
       current_options.default_lease_length := Some lease_length;
       current_options
-    |"max_lease_length" ->
+    |"max-lease-time" ->
       let value = List.nth tokens 1 in
       let lease_length = Int32.of_string value in
       let current_options = read_subnet input_channel in
       current_options.max_lease_length := Some lease_length;
       current_options
+    |_ -> raise (Unknown_subnet_parameter first_token)
   with
   |(Failure _) -> raise (Parse_error "Insufficient arguments)")
   
@@ -115,11 +119,13 @@ let rec read_group input_channel =
     |(Ipaddr.Parse_error _) -> raise (Parse_error "Invalid subnet mask")
     |(Failure _) -> raise (Parse_error "Not enough arguments in subnet declaration")
 
+  exception Unknown_global_parameter of string;;
+
   let rec read_globals input_channel =
 
     try
       let next_line = cut_at_semicolon(input_line input_channel) in
-      let separator = Str.regexp " +" in
+      let separator = Str.regexp "\( \|\t\)+" in
       let tokens = Str.split separator next_line in
       let first_token = List.nth tokens 0 in
       match first_token with
@@ -142,7 +148,7 @@ let rec read_group input_channel =
         current_options.globals.scope_bottom := scope_bottom;
         current_options.globals.scope_top := scope_top;
         current_options
-      |"default_lease_length" ->
+      |"default-lease-time" ->
         (try
           let value = List.nth tokens 1 in
           let lease_length = Some (Int32.of_string value) in
@@ -152,15 +158,16 @@ let rec read_group input_channel =
         with
         |(Failure _) -> raise (Parse_error "No valid argument for max lease length")
       )
-      |"max_lease_length" ->
-        try
+      |"max-lease-time" ->
+        (try
           let value = List.nth tokens 1 in
           let lease_length = Some (Int32.of_string value) in
           let current_options = read_globals input_channel in
           current_options.globals.max_lease_length := lease_length;
           current_options
         with
-          |(Failure _) -> raise (Parse_error "No argument for max lease length")
+        |(Failure _) -> raise (Parse_error "No argument for max lease length"))
+      |_-> raise (Unknown_global_parameter first_token)
     with
     |End_of_file ->
       {globals = {default_lease_length=ref None;max_lease_length = ref None;scope_bottom = ref None;scope_top = ref None;parameters = ref []};subnets=ref[]}
