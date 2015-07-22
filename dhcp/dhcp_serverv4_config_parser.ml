@@ -25,6 +25,15 @@ let cut_at_semicolon string =
   |Some x-> String.sub string 0 x
   |None -> string
 
+let read_and_format input_channel =
+  let next_line = input_line input_channel in
+  let formatted_line = cut_at_semicolon next_line in
+  let separator = Str.regexp "\( \|\t\)+" in
+  let tokens = Str.split separator formatted_line in
+  match tokens with
+  |[] -> None
+  |_ -> Some tokens;;
+
 let strings_to_ip_addresses list =
   let no_commas = List.map (Str.global_replace (Str.regexp ",") "") list in
   List.map (Ipaddr.V4.of_string_exn) no_commas;;  
@@ -58,40 +67,41 @@ exception Undefined_range_for_subnet of string;;
 exception Unknown_subnet_parameter of string;;
   
 let rec read_subnet input_channel=
-  let next_line = cut_at_semicolon(input_line input_channel) in
-  let separator = Str.regexp "\( \|\t\)+" in
-  let tokens = Str.split separator next_line in
-  try
-    let first_token = List.hd tokens in
-    match first_token with
-    |"}" -> {default_lease_length = ref None;max_lease_length = ref None;scope_bottom = ref None;scope_top = ref None;parameters = ref []} (*end of subnet declaration*)
-    |"option"->
-      let new_option = read_option (List.tl tokens) in
-      let current_subnet_parameters = read_subnet input_channel in
-      current_subnet_parameters.parameters:= new_option::(!(current_subnet_parameters.parameters));
-      current_subnet_parameters
-    |"range"->
-      let scope_bottom = (Ipaddr.V4.of_string (List.nth tokens 1)) in
-      let scope_top = (Ipaddr.V4.of_string (List.nth tokens 2)) in
-      let current_subnet_parameters = read_subnet input_channel in
-      current_subnet_parameters.scope_bottom:= scope_bottom;
-      current_subnet_parameters.scope_top:= scope_top;
-      current_subnet_parameters
-    |"default-lease-time" ->
-      let value = List.nth tokens 1 in
-      let lease_length = Int32.of_string value in
-      let current_options = read_subnet input_channel in
-      current_options.default_lease_length := Some lease_length;
-      current_options
-    |"max-lease-time" ->
-      let value = List.nth tokens 1 in
-      let lease_length = Int32.of_string value in
-      let current_options = read_subnet input_channel in
-      current_options.max_lease_length := Some lease_length;
-      current_options
-    |_ -> raise (Unknown_subnet_parameter first_token)
-  with
-  |(Failure _) -> raise (Parse_error "Insufficient arguments)")
+  let line = read_and_format input_channel in
+  match line with
+  |None -> read_subnet input_channel (*empty line*)
+  |Some tokens ->
+    try
+      let first_token = List.hd tokens in
+      match first_token with
+      |"}" -> {default_lease_length = ref None;max_lease_length = ref None;scope_bottom = ref None;scope_top = ref None;parameters = ref []} (*end of subnet declaration*)
+      |"option"->
+        let new_option = read_option (List.tl tokens) in
+        let current_subnet_parameters = read_subnet input_channel in
+        current_subnet_parameters.parameters:= new_option::(!(current_subnet_parameters.parameters));
+        current_subnet_parameters
+      |"range"->
+        let scope_bottom = (Ipaddr.V4.of_string (List.nth tokens 1)) in
+        let scope_top = (Ipaddr.V4.of_string (List.nth tokens 2)) in
+        let current_subnet_parameters = read_subnet input_channel in
+        current_subnet_parameters.scope_bottom:= scope_bottom;
+        current_subnet_parameters.scope_top:= scope_top;
+        current_subnet_parameters
+      |"default_lease_time" ->
+        let value = List.nth tokens 1 in
+        let lease_length = Int32.of_string value in
+        let current_options = read_subnet input_channel in
+        current_options.default_lease_length := Some lease_length;
+        current_options
+      |"max_lease_time" ->
+        let value = List.nth tokens 1 in
+        let lease_length = Int32.of_string value in
+        let current_options = read_subnet input_channel in
+        current_options.max_lease_length := Some lease_length;
+        current_options
+      |_ -> raise (Unknown_subnet_parameter first_token)
+    with
+    |(Failure _) -> raise (Parse_error "Insufficient arguments)")
   
 (*
 let rec read_group input_channel = 
@@ -119,14 +129,14 @@ let rec read_group input_channel =
     |(Ipaddr.Parse_error _) -> raise (Parse_error "Invalid subnet mask")
     |(Failure _) -> raise (Parse_error "Not enough arguments in subnet declaration")
 
-  exception Unknown_global_parameter of string;;
+exception Unknown_global_parameter of string;;
 
-  let rec read_globals input_channel =
-
-    try
-      let next_line = cut_at_semicolon(input_line input_channel) in
-      let separator = Str.regexp "\( \|\t\)+" in
-      let tokens = Str.split separator next_line in
+let rec read_globals input_channel =
+  try
+    let line = read_and_format input_channel in
+    match line with
+    |None -> read_globals input_channel (*blank line*)
+    |Some tokens ->
       let first_token = List.nth tokens 0 in
       match first_token with
       |"#" -> read_globals input_channel(*comment:ignore line*)
@@ -153,28 +163,25 @@ let rec read_group input_channel =
           let value = List.nth tokens 1 in
           let lease_length = Some (Int32.of_string value) in
           let current_options = read_globals input_channel in
-          current_options.globals.default_lease_length := lease_length;
-          current_options
+           current_options.globals.default_lease_length := lease_length;
+           current_options
         with
         |(Failure _) -> raise (Parse_error "No valid argument for max lease length")
-      )
+        )
       |"max-lease-time" ->
-        (try
-          let value = List.nth tokens 1 in
+       (try
+        let value = List.nth tokens 1 in
           let lease_length = Some (Int32.of_string value) in
           let current_options = read_globals input_channel in
           current_options.globals.max_lease_length := lease_length;
           current_options
         with
-        |(Failure _) -> raise (Parse_error "No argument for max lease length"))
-      |_-> raise (Unknown_global_parameter first_token)
-    with
-    |End_of_file ->
-      {globals = {default_lease_length=ref None;max_lease_length = ref None;scope_bottom = ref None;scope_top = ref None;parameters = ref []};subnets=ref[]}
+          |(Failure _) -> raise (Parse_error "No argument for max lease length"))
+        |_-> raise (Unknown_global_parameter first_token)
+      with
+      |End_of_file ->
+        {globals = {default_lease_length=ref None;max_lease_length = ref None;scope_bottom = ref None;scope_top = ref None;parameters = ref []};subnets=ref[]}
 
 let read_DHCP_config = 
   let input_channel = open_in "/etc/dhcpd.conf" in
   read_globals input_channel;;
-    
-    
-  
