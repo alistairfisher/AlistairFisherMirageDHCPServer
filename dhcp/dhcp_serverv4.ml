@@ -139,7 +139,7 @@ module Make (Console:V1_LWT.CONSOLE)
     list:=address::(!list)
   
   let remove_available_address t address =
-    let address_filter f = (f=address) in
+    let address_filter f = (f<>address) in
     t.available_addresses:=List.filter address_filter !(t.available_addresses);;
   
   (*unwrap DHCP packet, case split depending on the contents*)
@@ -273,7 +273,7 @@ module Make (Console:V1_LWT.CONSOLE)
 
   let rec serverThread t default_lease max_lease serverIP server_parameters=
     Stack.listen_udpv4 (t.stack) 67 (input t ~serverIP:serverIP ~default_lease:default_lease ~max_lease:max_lease ~server_parameters:server_parameters);
-    serverThread t default_lease max_lease serverIP server_parameters;;
+    Lwt.return_unit;;
   
   let get = function
   |Some x->x
