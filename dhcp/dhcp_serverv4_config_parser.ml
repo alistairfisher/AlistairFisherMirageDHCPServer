@@ -91,31 +91,31 @@ let rec read_subnet input_channel line_number=
     try
       let first_token = List.hd tokens in
       match first_token with
-      |"}" -> {default_lease_length = ref None;max_lease_length = ref None;scope_bottom = ref None;scope_top = ref None;parameters = ref []} (*end of subnet declaration*)
+      |"}" -> {default_lease_length = ref None;max_lease_length = ref None;scope_bottom = ref None;scope_top = ref None;parameters = ref []} , line_number (*end of subnet declaration*)
       |"option"->
         let new_option = read_option (List.tl tokens) line_number in
-        let current_subnet_parameters = read_subnet input_channel line_number in
+        let current_subnet_parameters,l = read_subnet input_channel (line_number+1) in
         current_subnet_parameters.parameters:= new_option::(!(current_subnet_parameters.parameters));
-        current_subnet_parameters
+        (current_subnet_parameters),l
       |"range"->
         let scope_bottom = (Ipaddr.V4.of_string (List.nth tokens 1)) in
         let scope_top = (Ipaddr.V4.of_string (List.nth tokens 2)) in
-        let current_subnet_parameters = read_subnet input_channel (line_number+1) in
+        let current_subnet_parameters,l = read_subnet input_channel (line_number+1) in
         current_subnet_parameters.scope_bottom:= scope_bottom;
         current_subnet_parameters.scope_top:= scope_top;
-        current_subnet_parameters
+        current_subnet_parameters,l
       |"default_lease_time" ->
         let value = List.nth tokens 1 in
         let lease_length = Int32.of_string value in
-        let current_options = read_subnet input_channel (line_number+1) in
+        let current_options,l = read_subnet input_channel (line_number+1) in
         current_options.default_lease_length := Some lease_length;
-        current_options
+        current_options,l
       |"max_lease_time" ->
         let value = List.nth tokens 1 in
         let lease_length = Int32.of_string value in
-        let current_options = read_subnet input_channel (line_number+1) in
+        let current_options,l = read_subnet input_channel (line_number+1) in
         current_options.max_lease_length := Some lease_length;
-        current_options
+        current_options,l
       |_ ->
         let error_message = generate_error_message ("Unknown subnet parameter " ^ first_token) line_number in
         raise (Parse_error error_message)
@@ -139,11 +139,11 @@ let read_subnet_start tokens input_channel line_number=
     match (List.nth tokens 1),(List.nth tokens 3) with
     |"netmask","{" -> (*correct netmask declaration, keep parsing*)
       (let netmask = Ipaddr.V4.of_string_exn (List.nth tokens 2) in
-      let parameters = read_subnet input_channel (line_number+1) in
+      let parameters,line = read_subnet input_channel (line_number+1) in
       (*check that scope is defined*)
       match !(parameters.scope_bottom) with
         |None-> raise (Undefined_range_for_subnet (List.hd tokens))
-        |Some x->  subnet,netmask,parameters)
+        |Some x->  (subnet,netmask,parameters),line)
     |"netmask",_ -> raise (Parse_error "'{' expected after subnet declaration")
     |_,_ -> raise (Parse_error "netmask not declared in subnet declaration")
   with
@@ -168,8 +168,8 @@ let rec read_globals input_channel line_number =
       match first_token with
       |"#" -> read_globals input_channel (line_number + 1)(*comment:ignore line*)
       |"subnet" ->
-        let new_subnet = read_subnet_start (List.tl tokens) input_channel line_number in
-        let current_options = read_globals input_channel (line_number + 1) in
+        let (new_subnet:Ipaddr.V4.t*Ipaddr.V4.t*working_parameters),(line:int) = read_subnet_start (List.tl tokens) input_channel line_number in
+        let current_options = read_globals input_channel (line + 1) in
         current_options.subnets := new_subnet::(!(current_options.subnets));
         current_options
       (*|"group" -> read_group_start (List.tl tokens) global_parameters*)
