@@ -256,7 +256,7 @@ module Make (Console:V1_LWT.CONSOLE)
         output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:yiaddr ~siaddr:serverIP ~giaddr:giaddr ~secs:secs ~chaddr:chaddr ~flags:flags ~options:options;
       | _ ->Lwt.return_unit;; (*this is a packet meant for a client*)
       
-  let rec garbage_collect t collection_interval=
+  let rec garbage_collect t collection_interval =
     Console.log t.c (sprintf "GC running!");
     let rec gc_reserved =function
       |[] -> []
@@ -271,7 +271,7 @@ module Make (Console:V1_LWT.CONSOLE)
     in (Unix.sleep (int_of_float(collection_interval)));t.reserved_addresses:=(gc_reserved !(t.reserved_addresses));(t.in_use_addresses:=(gc_in_use !(t.in_use_addresses))); (*TODO: switch to time module.sleep*)
       (garbage_collect t collection_interval);;
 
-  let rec serverThread t default_lease max_lease serverIP server_parameters=
+  let rec serverThread t default_lease max_lease serverIP server_parameters =
     Stack.listen_udpv4 (t.stack) 67 (input t ~serverIP:serverIP ~default_lease:default_lease ~max_lease:max_lease ~server_parameters:server_parameters);
     Lwt.return_unit;;
   
@@ -279,7 +279,7 @@ module Make (Console:V1_LWT.CONSOLE)
   |Some x->x
   |None -> raise (Error "Undefined parameter");;
   
-  let start ~c ~clock ~stack= (*note: lease time is in seconds. 0xffffffff is reserved for infinity*)
+  let start ~c ~clock ~stack = (*note: lease time is in seconds. 0xffffffff is reserved for infinity*)
     let parameters = Dhcp_serverv4_config_parser.read_DHCP_config in
     let scopebottom = get(!(parameters.globals.scope_bottom)) in
     let scopetop = get(!(parameters.globals.scope_top)) in

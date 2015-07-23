@@ -1,3 +1,5 @@
+(*TODO: make case insensitive*)
+
 open Core.Std.String
 
 exception Parse_error of string;;
@@ -17,15 +19,20 @@ type working_server_parameters =
   subnets: (Ipaddr.V4.t*Ipaddr.V4.t*working_parameters) list ref;
 }
 
-let cut_at_semicolon string =
-  let semicolon_position = Core.Std.String.index string ';' in
+let cut_at_char string char =
+  let semicolon_position = Core.Std.String.index string char in
   match semicolon_position with
   |Some x-> String.sub string 0 x
   |None -> string
 
+let cut_at_semicolon string= cut_at_char string ';';;
+
+let remove_comments string = cut_at_char string '#';;
+
 let read_and_format input_channel =
   let next_line = input_line input_channel in
-  let formatted_line = cut_at_semicolon next_line in
+  let no_comments_line = remove_comments next_line in
+  let formatted_line = cut_at_semicolon no_comments_line in
   let separator = Str.regexp "\( \|\t\)+" in
   let tokens = Str.split separator formatted_line in
   match tokens with
@@ -166,7 +173,6 @@ let rec read_globals input_channel line_number =
     |Some tokens ->
       let first_token = List.nth tokens 0 in
       match first_token with
-      |"#" -> read_globals input_channel (line_number + 1)(*comment:ignore line*)
       |"subnet" ->
         let (new_subnet:Ipaddr.V4.t*Ipaddr.V4.t*working_parameters),(line:int) = read_subnet_start (List.tl tokens) input_channel line_number in
         let current_options = read_globals input_channel (line + 1) in
