@@ -19,6 +19,13 @@ type working_server_parameters =
   subnets: (Ipaddr.V4.t*Ipaddr.V4.t*working_parameters) list ref;
 }
 
+type host_configuration = 
+{
+  hardware_address: string option ref;
+  ip_address: Ipaddr.V4.t option ref; 
+  host_parameters: Dhcpv4_option.t list ref;
+}
+
 let strings_to_ip_addresses list =
   let no_commas = List.map (Str.global_replace (Str.regexp ",") "") list in
   List.map (Ipaddr.V4.of_string_exn) no_commas;;  
@@ -141,15 +148,72 @@ let read_subnet_start tokens declarations line_number=
     |x -> let error_message = generate_error_message ("Error "^x) line_number in
       raise (Parse_error error_message)
 
-(*let read_host input_channel line_number = 
-  
-  
-let read_host_start tokens input_channel line_number = 
+let rec read_host declarations = 
+  match declarations with
+  |[]->
+    let error_message = "Final host declaration incomplete, } expected" in
+    raise (Parse_error error_message)
+  |(dec,line_number)::tail ->
+    try
+      let first_token = List.hd dec in
+      match first_token with
+      |"}"-> {hardware_address= ref None;ip_address= ref None;host_parameters= ref []} (*end of host declaration*)
+      |"hardware" ->
+        (let hardware_type = List.nth dec 1 in
+          match hardware_type with
+          |"ethernet"->
+            let mac_address = List.nth dec 2 in
+            let host_parameters = read_host tail in
+            host_parameters.hardware_address := Some mac_address;
+            host_parameters
+          |x ->
+            let error_message = generate_error_message (Printf.sprintf "Unsupported hardware type %s, use ethernet" x) line_number in
+            raise (Parse_error error_message)          
+        )
+      |"fixed-address" ->
+        let value = List.nth dec 1 in
+        let ip_address = Ipaddr.V4.of_string_exn value in
+        let host_parameters = read_host tail in
+        host_parameters.ip_address := Some ip_address;
+        host_parameters
+      |"option" ->
+        let new_option = read_option (List.tl dec) line_number in
+        let host_parameters = read_host tail in
+        host_parameters.host_parameters := new_option::!(host_parameters.host_parameters);
+        host_parameters
+      | x ->
+        let error_message = generate_error_message ("Unknown host parameter "^x) line_number in
+        raise (Parse_error error_message)
+    with
+    |(Ipaddr.Parse_error (x,_)) ->
+      let error_message = generate_error_message (Printf.sprintf "Invalid ip address: %s" (List.nth dec 1)) line_number in
+      raise (Parse_error error_message)
+    |(Failure "nth") ->
+      let error_message = generate_error_message "Not enoug arguments for parameter" line_number in
+      raise (Parse_error error_message)
+          
+let read_host_start tokens declarations line_number = 
   try
     let domain_name name = List.hd tokens in
-    
-
-let read_group input_channel line_number = 
+    match (List.nth tokens 1) with
+    |"{" ->
+      let host_parameters = read_host declarations in
+      domain_name,host_parameters
+    |_ ->
+      let error_message = generate_error_message "Parsing error: '{' expected" line_number in
+      raise (Parse_error error_message)
+  with
+  |(Failure "hd") ->
+    let error_message = generate_error_message "No hostname provided" line_number in
+    raise (Parse_error error_message)
+  |(Failure "nth") ->
+    let error_message = generate_error_message "Parsing error: '}' expected" line_number in
+    raise (Parse_error error_message)
+  |(Failure x) ->
+    let error_message = generate_error_message ("Error "^x) line_number in
+    raise (Parse_error error_message)
+     
+(*let read_group input_channel line_number = 
   let line = read_and_format input_channel in
   match line with
   |None -> read_group input_channel (line_number+1)

@@ -285,7 +285,7 @@ module Make (Console:V1_LWT.CONSOLE)
     let scopetop = get(!(parameters.globals.scope_top)) in
     let default_lease  = get(!(parameters.globals.default_lease_length)) in
     let max_lease = get(!(parameters.globals.max_lease_length)) in
-    let serverIP = Stack.IPV4.get_ip (Stack.ipv4 stack) in
+    let serverIP = List.hd(Stack.IPV4.get_ip (Stack.ipv4 stack)) in
     let server_parameters = [] in
     let reserved_addresses = ref [] in
     let in_use_addresses= ref [] in
