@@ -1,5 +1,5 @@
 (*Initial DHCP- need to migrate to IRMIN, dynamic allocation only,no additional information (DHCPInform),server IP is always this server, no renewals or rebinding cases,
-no probing before reusing address, customisation of hardware options, reading params from config file (WIP), account for clock drift, can only serve 1 subnet*)
+no probing before reusing address,no customisation of hardware options, reading params from config file (WIP), account for clock drift, can only serve 1 subnet*)
 
 (*Features implemented:
 
@@ -187,14 +187,14 @@ module Make (Console:V1_LWT.CONSOLE)
     in
     match packet.op with
       |`Discover ->
-        let address = match find packet (function `Requested_ip requested_address -> Some requested_address | _ -> None) with
+        let address = match find packet (function `Requested_ip requested_address -> Some requested_address | _ -> None) with (*check whether the client has requested a specific address, and if possible reserve it for them*)
           |None-> List.hd !(t.available_addresses)
           |Some requested_address ->
             if List.mem requested_address !(t.available_addresses) then requested_address
             else List.hd !(t.available_addresses)
         in
         Console.log t.c (sprintf "Packet is a discover, currently %d reserved addresses" (List.length !(t.reserved_addresses)));
-        Console.log t.c (sprintf "Allocating %s" (Ipaddr.V4.to_string address));
+        Console.log t.c (sprintf "Reserving %s for this client" (Ipaddr.V4.to_string address));
         let new_reservation = client_identifier,{ip_address=address;xid=xid;reservation_timestamp=Clock.time()} in
         add_address new_reservation t.reserved_addresses;
         Console.log t.c (sprintf "Now %d reserved addresses" (List.length !(t.reserved_addresses)));
