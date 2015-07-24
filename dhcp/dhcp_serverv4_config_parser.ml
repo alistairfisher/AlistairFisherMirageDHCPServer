@@ -26,8 +26,6 @@ let strings_to_ip_addresses list =
 let generate_error_message message line_number = 
   message^(Printf.sprintf " on line %d" line_number);;
 
-exception Unknown_option of string;;
-
 let read_option tokens line_number =
   let open Dhcpv4_option in
   match tokens with
@@ -50,7 +48,9 @@ let read_option tokens line_number =
       |"default-lease-time" -> `Lease_time (Int32.of_string value)
       |"max-lease-time" -> `Lease_time (Int32.of_string value)
       |"domain-search" -> `Domain_search value
-      |_-> raise (Unknown_option dhcp_option)
+      |_->
+        let error_message = generate_error_message "Unknown DHCP option" line_number in
+        raise (Parse_error error_message)
     with
     |(Ipaddr.Parse_error _) ->
       let error_message = generate_error_message "Invalid ip address" line_number in
@@ -67,8 +67,6 @@ let read_option tokens line_number =
         let error_message = generate_error_message "Parsing error on line" line_number in
         raise (Parse_error error_message)
       );;
-
-exception Undefined_range_for_subnet of string;;
   
 let rec read_subnet declarations =
   match declarations with
@@ -110,8 +108,11 @@ let rec read_subnet declarations =
         raise (Parse_error error_message)
   with
   |(Failure "hd") ->
-    let error_message = generate_error_message ("Blank declaration ") line_number in
+    let error_message = generate_error_message "Blank declaration " line_number in
     raise (Parse_error error_message)
+  |(Failure "nth") ->
+    let error_message = generate_error_message "Not enough parameters provided for option" line_number in
+    raise (Parse_error error_message) 
 
 let read_subnet_start tokens declarations line_number=
   try
@@ -122,7 +123,9 @@ let read_subnet_start tokens declarations line_number=
       let parameters,remaining_declarations = read_subnet declarations in
       (*check that scope is defined*)
       match !(parameters.scope_bottom) with
-        |None-> raise (Undefined_range_for_subnet ("List.hd tokens"))
+        |None->
+          let error_message = Printf.sprintf "The subnet %s does not have a defined range" (List.hd tokens) in
+          raise (Parse_error error_message)
         |Some x->  (subnet,netmask,parameters),remaining_declarations)
     |"netmask",_ -> raise (Parse_error "'{' expected after subnet declaration")
     |_,_ -> raise (Parse_error "netmask not declared in subnet declaration")
@@ -135,7 +138,7 @@ let read_subnet_start tokens declarations line_number=
       raise (Parse_error error_message)
     |"nth"-> let error_message = generate_error_message "Error: line formatting incorrect, ensure subnet mask and netmask are both labelled and provided, and finish with {" line_number in
       raise (Parse_error error_message)
-    |_ -> let error_message = generate_error_message "Error" line_number in
+    |x -> let error_message = generate_error_message ("Error "^x) line_number in
       raise (Parse_error error_message)
 
 (*let read_host input_channel line_number = 
@@ -256,7 +259,7 @@ let lexing input_channel =
   let lines = line_parser input_channel 1 in
   List.concat lines;; (*now have a list of declarations, labelled with their original line number*)
    
-let read_DHCP_config = 
+let read_DHCP_config =
   let input_channel = open_in "/etc/dhcpd.conf" in
   let declarations = lexing input_channel in
-  read_globals declarations;;
+  read_globals declarations
