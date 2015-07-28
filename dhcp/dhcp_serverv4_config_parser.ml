@@ -1,5 +1,3 @@
-(*TODO: make case insensitive.*)
-
 open Core.Std.String
 
 exception Parse_error of string;;
