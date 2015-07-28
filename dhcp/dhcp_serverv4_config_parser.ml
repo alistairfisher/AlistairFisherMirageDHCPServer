@@ -29,7 +29,7 @@ let strings_to_ip_addresses list =
   List.map (Ipaddr.V4.of_string_exn) no_commas;;  
 
 let generate_error_message message line_number = 
-  message^(Printf.sprintf " on line %d" line_number);;
+  Printf.sprintf "%s on line %d" message line_number;;
 
 let read_option tokens line_number =
   let open Dhcpv4_option in
