@@ -2,3 +2,9 @@ _build
 .*.swp
 setup.data
 setup.log
+examples/
+lib/
+lib_test/
+tcp/
+tests/
+unix/
