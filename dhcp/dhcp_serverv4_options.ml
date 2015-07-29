@@ -26,8 +26,7 @@ let rec find_option option parameter_list =
     if t_equalto_msg h option then Some h
     else find_option option t;;
 
-let rec parameter_request c_requests s_parameters = match c_requests with (*This will cause searches for stuff the server can't provide like Parameter Request.
-  It's still correct (provided the server parameters themselves don't contain strange parameters) but inefficient*)
+let rec parameter_request c_requests s_parameters = match c_requests with
   |[]->[]
   |(h::t) ->
     let option = find_option h s_parameters in
@@ -37,8 +36,19 @@ let rec parameter_request c_requests s_parameters = match c_requests with (*This
 
 
 let make_options_lease ~client_requests ~server_parameters ~serverIP ~lease_length ~message_type =
-  let params = parameter_request client_requests server_parameters in
-  { op = message_type; opts= [`Lease_time lease_length;`Server_identifier serverIP]@params@[`End]};;
+  let filtered_client_requests = 
+    let filter x = (x<>`Subnet_mask) && (x<>`Pad) && (x<>`End) && (x<>`Lease_time) in (*Filter out padding, End, and subnet_mask and lease_time because these 2 are found separately*)
+    (*TODO: remove duplicated from client requests*)
+    List.filter client_requests filter
+  in
+  let params = parameter_request filtered_client_requests server_parameters in
+  if (List.mem `Subnet_mask client_requests) then (*It is crucial that subnet mask be at the head of the list: RFC 2132 states that in an options
+    packet, subnet mask must be specified before routers.*)
+    let subnet_mask = find_option `Subnet_mask server_parameters in
+    match subnet_mask with
+    |None -> { op = message_type; opts= [`Lease_time lease_length;`Server_identifier serverIP]@params@[`End]}
+    |Some s ->  { op = message_type; opts= [`Lease_time lease_length;`Server_identifier serverIP;s]@params@[`End]}
+  else { op = message_type; opts= [`Lease_time lease_length;`Server_identifier serverIP]@params@[`End]}
     
 let make_options_no_lease ~client_requests ~server_parameters ~serverIP ~message_type =
   let params = parameter_request client_requests server_parameters in

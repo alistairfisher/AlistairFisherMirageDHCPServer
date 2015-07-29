@@ -343,7 +343,7 @@ module Make (Console:V1_LWT.CONSOLE)
     let rec extract_subnets = function
     |[]-> []
     |(subnet,netmask,subnet_parameters)::t ->
-      let parameters = !(subnet_parameters.parameters) in
+      let parameters = (`Subnet_mask netmask)::(!(subnet_parameters.parameters)) in 
       let scope_bottom = get !(subnet_parameters.scope_bottom) in
       let scope_top = get !(subnet_parameters.scope_top) in
       let reserved_addresses = ref [] in
