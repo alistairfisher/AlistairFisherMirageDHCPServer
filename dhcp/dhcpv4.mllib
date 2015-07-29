@@ -1,5 +1,8 @@
 # OASIS_START
-# DO NOT EDIT (digest: 6fde50ae603bc1fc44bb572206fbe6fe)
+# DO NOT EDIT (digest: 81613c243784b68a696726fe9e41efd2)
 Dhcpv4_option
 Dhcp_clientv4
+Dhcp_serverv4
+Dhcp_serverv4_options
+Dhcp_serverv4_config_parser
 # OASIS_STOP

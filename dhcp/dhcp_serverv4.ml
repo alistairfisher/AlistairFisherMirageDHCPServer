@@ -216,12 +216,8 @@ module Make (Console:V1_LWT.CONSOLE)
       |None -> chaddr
       |Some id-> Console.log t.c (sprintf "Client identifer set to %s" id);id
     in
-    let unspecified_address = Ipaddr.V4.unspecified in
-    let client_subnet = match giaddr with
-    |unspecified_address -> (*the client is on the same subnet as the server*)
-      t.server_subnet  
-    |specified_address ->(*the client is not on the same subnet, the packet has travelled via a BOOTP relay (with address giaddr). Use the subnet that contains the relay*)
-      find_subnet specified_address (t.subnets)
+    let client_subnet = if (giaddr = Ipaddr.V4.unspecified) then t.server_subnet  
+      else find_subnet giaddr (t.subnets) (*the client is not on the same subnet, the packet has travelled via a BOOTP relay (with address giaddr). Use the subnet that contains the relay*)     
     in
     let lease_length = match find packet (function `Lease_time requested_lease -> Some requested_lease |_ -> None) with
       |None -> client_subnet.default_lease_length

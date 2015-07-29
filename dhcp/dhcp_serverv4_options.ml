@@ -39,7 +39,7 @@ let make_options_lease ~client_requests ~server_parameters ~serverIP ~lease_leng
   let filtered_client_requests = 
     let filter x = (x<>`Subnet_mask) && (x<>`Pad) && (x<>`End) && (x<>`Lease_time) in (*Filter out padding, End, and subnet_mask and lease_time because these 2 are found separately*)
     (*TODO: remove duplicated from client requests*)
-    List.filter client_requests filter
+    List.filter filter client_requests
   in
   let params = parameter_request filtered_client_requests server_parameters in
   if (List.mem `Subnet_mask client_requests) then (*It is crucial that subnet mask be at the head of the list: RFC 2132 states that in an options

@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 6aa06eed53e9ce5c406bb78c559f0b39)
+# DO NOT EDIT (digest: 8dbfe279512e930a8a86f4369145a169)
 version = "2.5.1"
 description = "Ethernet, TCP/IPv4 and DHCPv4 library"
 requires = "io-page mirage-types ipaddr cstruct mirage-profile bytes"
@@ -239,7 +239,8 @@ package "ethif" (
 package "dhcpv4" (
  version = "2.5.1"
  description = "Ethernet, TCP/IPv4 and DHCPv4 library"
- requires = "io-page bytes mirage-types ipaddr cstruct lwt tcpip.udp"
+ requires =
+ "io-page bytes mirage-types ipaddr cstruct lwt tcpip.udp core threads os"
  archive(byte) = "dhcpv4.cma"
  archive(byte, plugin) = "dhcpv4.cma"
  archive(native) = "dhcpv4.cmxa"
