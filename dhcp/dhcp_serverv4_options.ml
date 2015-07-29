@@ -12,6 +12,7 @@
 *)
 
 open Dhcpv4_option;;
+open Dhcpv4_option.Packet;;
 
 let t_equalto_msg t msg = 
   let string_of_t = t_to_string t in
@@ -36,9 +37,10 @@ let rec parameter_request c_requests s_parameters = match c_requests with (*This
 
 
 let make_options_lease ~client_requests ~server_parameters ~serverIP ~lease_length ~message_type =
-  (*let params = parameter_request ~c_requests:client requests ~s_parameters:parameters_list in*)
-  { op = message_type; opts= [`Lease_time lease_length;`Server_identifier serverIP;`End]};;
+  let params = parameter_request client_requests server_parameters in
+  { op = message_type; opts= [`Lease_time lease_length;`Server_identifier serverIP]@params@[`End]};;
     
 let make_options_no_lease ~client_requests ~server_parameters ~serverIP ~message_type =
-  {op = message_type;opts = [`Server_identifier serverIP;`End]};;
+  let params = parameter_request client_requests server_parameters in
+  {op = message_type;opts = [`Server_identifier serverIP]@params@[`End]};;
     
