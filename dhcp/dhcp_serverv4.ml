@@ -1,4 +1,4 @@
-(*Initial DHCP- need to hashtables, dynamic allocation only,server IP is always this server, no renewals or rebinding cases,
+(*Initial DHCP- need to hashtables, dynamic allocation only,server IP is always this server,
 no probing before reusing address,no customisation of hardware options, reading params from config file (WIP), account for clock drift*)
 
 (*Features implemented:
@@ -285,7 +285,15 @@ module Make (Console:V1_LWT.CONSOLE)
                 add_address new_reservation client_subnet.in_use_addresses;
                 let options = make_options_with_lease ~client_requests: client_requests ~server_parameters:server_parameters ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
                 output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
-              else if (dst = Ipaddr.V4.broadcast) then Lwt.return_unit(*the packet was multicasted here, it's a rebinding*)
+              else if (dst = Ipaddr.V4.broadcast) then (*the packet was multicasted, it's a rebinding*)
+                if (List.mem_assoc client_identifier !(client_subnet.in_use_addresses)) then (*this server is responsible for this . NB this an exact copy of the renewal code*)
+                  let new_reservation = client_identifier,{ip_address=ciaddr;lease_length=lease_length;lease_timestamp=Clock.time()} in
+                  client_subnet.in_use_addresses:= List.remove_assoc client_identifier !(client_subnet.in_use_addresses);
+                  add_address new_reservation client_subnet.in_use_addresses;
+                  let options = make_options_with_lease ~client_requests: client_requests ~server_parameters:server_parameters ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
+                  output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
+                else (*this server is not responsible for this binding*)
+                  Lwt.return_unit
               else Lwt.return_unit (*error case, this should never be used*)
             )
       |`Decline -> (*This means that the client has discovered that the offered IP address is in use, the server responds by reserving the address until a client explicitly releases it*)
