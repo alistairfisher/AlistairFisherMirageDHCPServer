@@ -317,7 +317,7 @@ module Make (Console:V1_LWT.CONSOLE)
         if (lease != 0xffffffff && (int_of_float(Clock.time()-.(snd h).lease_timestamp) > lease)) then gc_in_use t else h::(gc_in_use t)
     in
     let rec gc = function
-    |[]-> (Time.sleep collection_interval);(garbage_collect t collection_interval)
+    |[]-> (Time.sleep collection_interval)>>=fun()->(garbage_collect t collection_interval)
     |subnet::tail -> subnet.reserved_addresses:=(gc_reserved !(subnet.reserved_addresses));(subnet.in_use_addresses:=(gc_in_use !(subnet.in_use_addresses)));gc tail
     in
     gc (t.subnets);;

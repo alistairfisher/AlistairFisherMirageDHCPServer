@@ -98,7 +98,7 @@ Library dhcpv4
                       tcpip.udp,
                       core,
                       threads,
-                      os
+                      mirage-unix
                       
 Library "tcpip-stack-direct"
   CompiledObject:     best
