@@ -1,5 +1,5 @@
-(*Initial DHCP- need to hashtables, dynamic allocation only,no additional information (DHCPInform),server IP is always this server, no renewals or rebinding cases,
-no probing before reusing address,no customisation of hardware options, reading params from config file (WIP), account for clock drift, can only serve 1 subnet*)
+(*Initial DHCP- need to hashtables, dynamic allocation only,server IP is always this server, no renewals or rebinding cases,
+no probing before reusing address,no customisation of hardware options, reading params from config file (WIP), account for clock drift*)
 
 (*Features implemented:
 
@@ -118,7 +118,7 @@ module Make (Console:V1_LWT.CONSOLE)
       (prefix subnet.subnet)=(prefix ip_address)
     in
     match subnets with
-    |[] -> raise (Error "Subnet not found")
+    |[] -> raise (Error ("Subnet not found for subnet "^Ipaddr.V4.to_ipaddr(ip_address)))
     |h::t ->
       if (compare_address_to_subnet h) then h
       else find_subnet ip_address t;; 
@@ -144,7 +144,6 @@ module Make (Console:V1_LWT.CONSOLE)
   let make_options_without_lease ~client_requests ~server_parameters ~serverIP ~message_type =
     let open Dhcpv4_option.Packet in
     {op = message_type;opts = [`Server_identifier serverIP;`End]};;
-  
    
   (*This function is ultimately responsible for all outward bound traffic from the server*)  
   let output_broadcast ?nak:(n=false) t ~xid ~ciaddr ~yiaddr ~siaddr ~giaddr ~chaddr ~flags ~options =
@@ -328,8 +327,7 @@ module Make (Console:V1_LWT.CONSOLE)
   |None -> raise (Error "Undefined parameter");;
   
   let start ~c ~clock ~stack =
-    let serverIPs = Stack.IPV4.get_ip (Stack.ipv4 stack) in (*RFC 2131 states that the server SHOULD adjust the IP address it provides according to the location of the client (page 22 paragraph 2).
-    It MUST pick one that it believes is reachable by the client. TODO: adjust IP according to client location*)
+    let serverIPs = Stack.IPV4.get_ip (Stack.ipv4 stack) in
     let open Dhcp_serverv4_config_parser in 
     let parameters = Dhcp_serverv4_config_parser.read_DHCP_config in (*read parameters from /etc/dhcpd.conf*)
     (*extract global parameters*)
@@ -363,7 +361,8 @@ module Make (Console:V1_LWT.CONSOLE)
           |Some lease -> lease
           |None -> raise (Error ("No default lease length for subnet "^(Ipaddr.V4.to_string subnet)))
       in
-      let serverIP=(List.hd serverIPs) in (*TODO: set serverIPs properly*)
+      let serverIP=(List.hd serverIPs) in (*RFC 2131 states that the server SHOULD adjust the IP address it provides according to the location of the client (page 22 paragraph 2).
+      It MUST pick one that it believes is reachable by the client. TODO: adjust IP according to client location*)
       let subnet_record = {subnet;netmask;parameters;max_lease_length;default_lease_length;reserved_addresses;in_use_addresses;available_addresses;serverIP} in
       subnet_record::(extract_subnets t)
     in
@@ -373,5 +372,5 @@ module Make (Console:V1_LWT.CONSOLE)
       find_subnet test_IP subnets
     in
     let t = {c;stack;server_subnet;serverIPs;subnets;global_parameters} in
-    Lwt.join([serverThread t ; garbage_collect t 60.0]);; 
+    Lwt.join([serverThread t; garbage_collect t 60.0]);; 
 end
