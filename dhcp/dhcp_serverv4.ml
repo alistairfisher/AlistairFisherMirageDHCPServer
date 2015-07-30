@@ -262,7 +262,7 @@ module Make (Console:V1_LWT.CONSOLE)
               output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ip_address ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
             )
             else Lwt.return_unit; (*either the request is for a different server or the xid doesn't match the server's most recent transaction with that client*)
-          |None -> (*this is a renewal, rebinding or init_reboot. TODO: check whether requested IP is on the correct subnet*)
+          |None -> (*this is a renewal, rebinding or init_reboot.*)
             if (ciaddr = Ipaddr.V4.unspecified) then (*client in init-reboot*)
               let requested_IP = match find packet (function `Requested_ip ip -> Some ip |_ -> None) with
                 |None -> raise (Error "init-reboot with no requested IP")
@@ -278,7 +278,13 @@ module Make (Console:V1_LWT.CONSOLE)
                 let options = make_options_without_lease ~serverIP:serverIP ~message_type:`Nak ~client_requests: client_requests ~server_parameters:server_parameters in
                 output_broadcast t ~xid:xid ~nak:true ~ciaddr:ciaddr ~yiaddr:(Ipaddr.V4.unspecified) ~siaddr:(Ipaddr.V4.unspecified) ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
             else (*client in renew or rebind. TODO, can use the dst IP address in the function prototype to case split these*)
-              if (List.mem dst t.serverIPs) then Lwt.return_unit(*the packet was unicasted here, it's a renewal*) (*TODO: check sending semantics if sent over a relay*)
+              if (List.mem dst t.serverIPs) then (*the packet was unicasted here, it's a renewal*)
+                let new_reservation = client_identifier,{ip_address=ciaddr;lease_length=lease_length;lease_timestamp=Clock.time()} in
+                (*delete previous record and create a new one. Currently, accept all renewals*)
+                client_subnet.in_use_addresses:= List.remove_assoc client_identifier !(client_subnet.in_use_addresses);
+                add_address new_reservation client_subnet.in_use_addresses;
+                let options = make_options_with_lease ~client_requests: client_requests ~server_parameters:server_parameters ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
+                output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
               else if (dst = Ipaddr.V4.broadcast) then Lwt.return_unit(*the packet was multicasted here, it's a rebinding*)
               else Lwt.return_unit (*error case, this should never be used*)
             )
