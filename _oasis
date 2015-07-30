@@ -97,7 +97,8 @@ Library dhcpv4
                       lwt,
                       tcpip.udp,
                       core,
-                      threads
+                      threads,
+                      os
                       
 Library "tcpip-stack-direct"
   CompiledObject:     best

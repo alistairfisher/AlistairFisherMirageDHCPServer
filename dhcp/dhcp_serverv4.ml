@@ -29,6 +29,7 @@ no probing before reusing address,no customisation of hardware options, reading 
 
 open Lwt.Infix;;
 open Printf;;
+open OS;;
 
 module Make (Console:V1_LWT.CONSOLE)
   (Clock:V1.CLOCK)
@@ -316,12 +317,12 @@ module Make (Console:V1_LWT.CONSOLE)
         if (lease != 0xffffffff && (int_of_float(Clock.time()-.(snd h).lease_timestamp) > lease)) then gc_in_use t else h::(gc_in_use t)
     in
     let rec gc = function
-    |[]-> (Unix.sleep (int_of_float(collection_interval)));(garbage_collect t collection_interval)
+    |[]-> (Time.sleep collection_interval);(garbage_collect t collection_interval)
     |subnet::tail -> subnet.reserved_addresses:=(gc_reserved !(subnet.reserved_addresses));(subnet.in_use_addresses:=(gc_in_use !(subnet.in_use_addresses)));gc tail
     in
     gc (t.subnets);;
 
-  let rec serverThread t =
+  let serverThread t =
     Stack.listen_udpv4 (t.stack) 67 (input t);
     Lwt.return_unit;;
   

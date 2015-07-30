@@ -55,17 +55,6 @@ let filter_client_requests c =
   let filter x = (x<>`Subnet_mask) && (x<>`Pad) && (x<>`End) && (x<>`Lease_time) && (x<>`Parameter_request) in (*Filter out padding, End, and subnet_mask and lease_time because these 2 are found separately*)
 (*TODO: remove duplicated from client requests*)
   List.filter filter c;;
-
-let make_options_lease ~client_requests ~server_parameters ~serverIP ~lease_length ~message_type =
-  let filtered_client_requests = filter_client_requests client_requests in
-  let params = parameter_request filtered_client_requests server_parameters in
-  if (List.mem `Subnet_mask client_requests) then (*It is crucial that subnet mask be at the head of the list: RFC 2132 states that in an options
-    packet, subnet mask must be specified before routers.*)
-    let subnet_mask = find_option `Subnet_mask server_parameters in
-    match subnet_mask with
-    |None -> { op = message_type; opts= [`Lease_time lease_length;`Server_identifier serverIP]@params@[`End]}
-    |Some s ->  { op = message_type; opts= [`Lease_time lease_length;`Server_identifier serverIP;s]@params@[`End]}
-  else { op = message_type; opts= [`Lease_time lease_length;`Server_identifier serverIP]@params@[`End]};;
     
 let make_options_no_lease ~client_requests ~server_parameters ~serverIP ~message_type =
   let filtered_client_requests = filter_client_requests client_requests in
