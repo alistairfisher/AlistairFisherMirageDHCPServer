@@ -302,7 +302,7 @@ let read_and_format input_channel =
     let no_comments_line = remove_comments next_line in
     let trimmed_line = String.trim (no_comments_line) in
     let declarations = Str.split (Str.regexp ";") trimmed_line in
-    let separator = Str.regexp "\( \|\t\)+" in
+    let separator = Str.regexp "\\( \\|\t\\)+" in
     let tokens = List.map (Str.split separator) declarations in
     Some tokens
   with
