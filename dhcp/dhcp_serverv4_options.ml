@@ -14,10 +14,27 @@
 open Dhcpv4_option;;
 open Dhcpv4_option.Packet;;
 
-let t_equalto_msg t msg = 
-  let string_of_t = t_to_string t in
-  let string_of_msg = msg_to_string msg in
-  string_of_t = string_of_msg;;
+let t_equalto_msg t msg = (*options in general need a better implementation, functions like this need to handle 255 cases separately...*)
+  match t,msg with
+  |`Subnet_mask _,`Subnet_mask -> true
+  |`Time_offset _,`Time_offset-> true
+  |`Router _,`Router ->true
+  |`Broadcast _,`Broadcast -> true
+  |`Time_server _,`Time_server -> true
+  |`Name_server _,`Name_server -> true
+  |`DNS_server _,`DNS_server -> true
+  |`Netbios_name_server _,`Netbios_name_server -> true
+  |`Host_name _,`Host_name -> true
+  |`Domain_name _,`Domain_name -> true
+  |`Requested_ip _,`Requested_ip -> true
+  |`Message_type _,`Message_type -> true
+  |`Server_identifier _,`Server_identifier-> true
+  |`Interface_mtu _,`Interface_mtu -> true
+  |`Message _,`Message -> true
+  |`Max_size _,`Max_size -> true
+  |`Client_id _,`Client_id -> true
+  |`Domain_search _,`Domain_search -> true
+  |_ -> false
 
 let rec find_option option parameter_list =
   match parameter_list with
@@ -34,13 +51,13 @@ let rec parameter_request c_requests s_parameters = match c_requests with
     |None -> parameter_request t s_parameters
     |Some o -> o::(parameter_request t s_parameters);;
 
+let filter_client_requests c = 
+  let filter x = (x<>`Subnet_mask) && (x<>`Pad) && (x<>`End) && (x<>`Lease_time) && (x<>`Parameter_request) in (*Filter out padding, End, and subnet_mask and lease_time because these 2 are found separately*)
+(*TODO: remove duplicated from client requests*)
+  List.filter filter c;;
 
 let make_options_lease ~client_requests ~server_parameters ~serverIP ~lease_length ~message_type =
-  let filtered_client_requests = 
-    let filter x = (x<>`Subnet_mask) && (x<>`Pad) && (x<>`End) && (x<>`Lease_time) in (*Filter out padding, End, and subnet_mask and lease_time because these 2 are found separately*)
-    (*TODO: remove duplicated from client requests*)
-    List.filter filter client_requests
-  in
+  let filtered_client_requests = filter_client_requests client_requests in
   let params = parameter_request filtered_client_requests server_parameters in
   if (List.mem `Subnet_mask client_requests) then (*It is crucial that subnet mask be at the head of the list: RFC 2132 states that in an options
     packet, subnet mask must be specified before routers.*)
@@ -48,9 +65,19 @@ let make_options_lease ~client_requests ~server_parameters ~serverIP ~lease_leng
     match subnet_mask with
     |None -> { op = message_type; opts= [`Lease_time lease_length;`Server_identifier serverIP]@params@[`End]}
     |Some s ->  { op = message_type; opts= [`Lease_time lease_length;`Server_identifier serverIP;s]@params@[`End]}
-  else { op = message_type; opts= [`Lease_time lease_length;`Server_identifier serverIP]@params@[`End]}
+  else { op = message_type; opts= [`Lease_time lease_length;`Server_identifier serverIP]@params@[`End]};;
     
 let make_options_no_lease ~client_requests ~server_parameters ~serverIP ~message_type =
-  let params = parameter_request client_requests server_parameters in
-  {op = message_type;opts = [`Server_identifier serverIP]@params@[`End]};;
-    
+  let filtered_client_requests = filter_client_requests client_requests in
+  let params = parameter_request filtered_client_requests server_parameters in
+  if (List.mem `Subnet_mask client_requests) then (*It is crucial that subnet mask be at the head of the list: RFC 2132 states that in an options 
+  packet, subnet mask must be specified before routers.*)
+    let subnet_mask = find_option `Subnet_mask server_parameters in
+    match subnet_mask with
+    |None -> { op = message_type; opts= (`Server_identifier serverIP)::params@[`End]}
+    |Some s ->  { op = message_type; opts= [`Server_identifier serverIP;s]@params@[`End]}
+  else { op = message_type; opts= (`Server_identifier serverIP)::params@[`End]};;
+
+let make_options_lease2 ~client_requests ~server_parameters ~serverIP ~lease_length ~message_type =
+  let options = make_options_no_lease client_requests server_parameters serverIP message_type in
+  {op = options.op;opts = ((`Lease_time lease_length) :: options.opts)};;

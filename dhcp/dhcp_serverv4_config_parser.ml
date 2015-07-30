@@ -149,7 +149,7 @@ let read_subnet_start tokens declarations line_number=
 let rec read_host declarations = 
   match declarations with
   |[]->
-    let error_message = "Final host declaration incomplete, } expected" in
+    let error_message = "Final host declaration incomplete, '}' expected" in
     raise (Parse_error error_message)
   |(dec,line_number)::tail ->
     try

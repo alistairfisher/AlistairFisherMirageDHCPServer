@@ -118,7 +118,7 @@ module Make (Console:V1_LWT.CONSOLE)
       (prefix subnet.subnet)=(prefix ip_address)
     in
     match subnets with
-    |[] -> raise (Error ("Subnet not found for subnet "^Ipaddr.V4.to_ipaddr(ip_address)))
+    |[] -> raise (Error ("Subnet not found for subnet "^Ipaddr.V4.to_string(ip_address)))
     |h::t ->
       if (compare_address_to_subnet h) then h
       else find_subnet ip_address t;; 
@@ -277,7 +277,10 @@ module Make (Console:V1_LWT.CONSOLE)
                 let options = make_options_without_lease ~serverIP:serverIP ~message_type:`Nak ~client_requests: client_requests ~server_parameters:server_parameters in
                 output_broadcast t ~xid:xid ~nak:true ~ciaddr:ciaddr ~yiaddr:(Ipaddr.V4.unspecified) ~siaddr:(Ipaddr.V4.unspecified) ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
             else (*client in renew or rebind. TODO, can use the dst IP address in the function prototype to case split these*)
-              Lwt.return_unit;)
+              if (List.mem dst t.serverIPs) then Lwt.return_unit(*the packet was unicasted here, it's a renewal*) (*TODO: check sending semantics if sent over a relay*)
+              else if (dst = Ipaddr.V4.broadcast) then Lwt.return_unit(*the packet was multicasted here, it's a rebinding*)
+              else Lwt.return_unit (*error case, this should never be used*)
+            )
       |`Decline -> (*This means that the client has discovered that the offered IP address is in use, the server responds by reserving the address until a client explicitly releases it*)
         (try
           let ip_address = (List.assoc chaddr !(client_subnet.reserved_addresses)).reserved_ip_address in
