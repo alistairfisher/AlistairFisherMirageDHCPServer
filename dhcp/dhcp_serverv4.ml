@@ -221,7 +221,7 @@ module Make (Console:V1_LWT.CONSOLE)
       |Some params -> params
     in
     let serverIP = client_subnet.serverIP in
-    let server_parameters = client_subnet.parameters in
+    let subnet_parameters = client_subnet.parameters in
     let open Dhcp_serverv4_options in
     match packet.op with
       |`Discover -> (* TODO: should probe address via ICMP here, and ensure that it's actually free, and try a new one if not*)
@@ -237,7 +237,8 @@ module Make (Console:V1_LWT.CONSOLE)
         add_address new_reservation client_subnet.reserved_addresses;
         Console.log t.c (sprintf "Now %d reserved addresses" (List.length !(client_subnet.reserved_addresses)));
         remove_available_address client_subnet reserved_ip_address;
-        let options = make_options_with_lease ~client_requests: client_requests ~server_parameters:server_parameters ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Offer in
+        let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
+        ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Offer in
         (*send DHCP Offer*)
         output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:reserved_ip_address ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
       |`Request ->
@@ -252,7 +253,8 @@ module Make (Console:V1_LWT.CONSOLE)
               let new_reservation = client_identifier,{ip_address;lease_length;lease_timestamp=Clock.time()} in
               add_address new_reservation client_subnet.leases;
               client_subnet.reserved_addresses:= remove_assoc_rec client_identifier !(client_subnet.reserved_addresses);
-              let options = make_options_with_lease ~client_requests: client_requests ~server_parameters:server_parameters ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
+              let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
+              ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
               output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ip_address ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
             )
             else Lwt.return_unit; (*either the request is for a different server or the xid doesn't match the server's most recent transaction with that client*)
@@ -266,10 +268,12 @@ module Make (Console:V1_LWT.CONSOLE)
                 let new_reservation = client_identifier,{ip_address=requested_IP;lease_length=lease_length;lease_timestamp=Clock.time()} in
                 add_address new_reservation client_subnet.leases;
                 remove_available_address client_subnet requested_IP;
-                let options = make_options_with_lease ~client_requests: client_requests ~server_parameters:server_parameters ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
+                let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
+                ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
                 output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:requested_IP ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
               else (*address is not available, either because it's taken or because it's not on this subnet send Nak*)
-                let options = make_options_without_lease ~serverIP:serverIP ~message_type:`Nak ~client_requests: client_requests ~server_parameters:server_parameters in
+                let options = make_options_without_lease ~serverIP:serverIP ~message_type:`Nak ~client_requests: client_requests
+                ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters in
                 output_broadcast t ~xid:xid ~nak:true ~ciaddr:ciaddr ~yiaddr:(Ipaddr.V4.unspecified) ~siaddr:(Ipaddr.V4.unspecified) ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
             else (*client in renew or rebind.*)
               if (List.mem dst t.serverIPs) then (*the packet was unicasted here, it's a renewal*)
@@ -279,14 +283,16 @@ module Make (Console:V1_LWT.CONSOLE)
                 (*delete previous record and create a new one. Currently, accept all renewals*)
                 client_subnet.leases:= remove_assoc_rec client_identifier !(client_subnet.leases);
                 add_address new_reservation client_subnet.leases;
-                let options = make_options_with_lease ~client_requests: client_requests ~server_parameters:server_parameters ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
+                let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
+                ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
                 output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
               else if (dst = Ipaddr.V4.broadcast) then (*the packet was multicasted, it's a rebinding*)
                 if (List.mem_assoc client_identifier !(client_subnet.leases)) then (*this server is responsible for this . NB this an exact copy of the renewal code*)
                   let new_reservation = client_identifier,{ip_address=ciaddr;lease_length=lease_length;lease_timestamp=Clock.time()} in
                   client_subnet.leases:= remove_assoc_rec client_identifier !(client_subnet.leases);
                   add_address new_reservation client_subnet.leases;
-                  let options = make_options_with_lease ~client_requests: client_requests ~server_parameters:server_parameters ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
+                  let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
+                  ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
                   output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
                 else (*this server is not responsible for this binding*)
                   Lwt.return_unit
@@ -309,7 +315,8 @@ module Make (Console:V1_LWT.CONSOLE)
           client_subnet.leases:=remove_assoc_rec entry !(client_subnet.leases));
           Lwt.return_unit;
       |`Inform ->
-        let options = make_options_without_lease ~client_requests:client_requests ~serverIP:serverIP ~server_parameters:server_parameters ~message_type:`Ack in
+        let options = make_options_without_lease ~client_requests:client_requests ~serverIP:serverIP ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
+        ~message_type:`Ack in
         output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:yiaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
       | _ -> Lwt.return_unit;; (*this is a packet meant for a client*)
       
