@@ -137,21 +137,6 @@ module Make (Console:V1_LWT.CONSOLE)
   |(a,b) :: t ->
     if a = key then remove_assoc_rec key t
     else (a,b) :: (remove_assoc_rec key t);;
-  
-  (*DHCP Options*)
-  
-  let rec parameter_request client_requests server_parameters = match client_requests with
-    |[]->[]
-    |(h::t) -> List.assoc h server_parameters :: (parameter_request t server_parameters);;
-
-  let make_options_with_lease ~client_requests ~server_parameters ~serverIP ~lease_length ~message_type =
-    let open Dhcpv4_option.Packet in
-    (*let params = parameter_request ~c_requests:client requests ~s_parameters:parameters_list in*)
-    { op = message_type; opts= [`Lease_time lease_length;`Server_identifier serverIP;`End]};;
-    
-  let make_options_without_lease ~client_requests ~server_parameters ~serverIP ~message_type =
-    let open Dhcpv4_option.Packet in
-    {op = message_type;opts = [`Server_identifier serverIP;`End]};;
    
   (*This function is ultimately responsible for all outward bound traffic from the server*)  
   let output_broadcast ?nak:(n=false) t ~xid ~ciaddr ~yiaddr ~siaddr ~giaddr ~chaddr ~flags ~options = (*nak needs to be set for naks, because they have different sending options*)
@@ -237,6 +222,7 @@ module Make (Console:V1_LWT.CONSOLE)
     in
     let serverIP = client_subnet.serverIP in
     let server_parameters = client_subnet.parameters in
+    let open Dhcp_serverv4_options in
     match packet.op with
       |`Discover -> (* TODO: should probe address via ICMP here, and ensure that it's actually free, and try a new one if not*)
         let reserved_ip_address = match find packet (function `Requested_ip requested_address -> Some requested_address | _ -> None) with (*check whether the client has requested a specific address, and if possible reserve it for them*)
@@ -315,7 +301,7 @@ module Make (Console:V1_LWT.CONSOLE)
           Lwt.return_unit;
         with
           |Not_found -> Lwt.return_unit;)
-      |`Release -> (*this may give errors with duplicate packets, MUST wipe ALL entries*)
+      |`Release ->
         let entry = client_identifier in
         Console.log t.c (sprintf "Packet is a release");
         if (List.mem_assoc entry !(client_subnet.leases)) then (

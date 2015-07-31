@@ -56,7 +56,7 @@ let filter_client_requests c =
 (*TODO: remove duplicated from client requests*)
   List.filter filter c;;
     
-let make_options_no_lease ~client_requests ~server_parameters ~serverIP ~message_type =
+let make_options_without_lease ~client_requests ~server_parameters ~serverIP ~message_type =
   let filtered_client_requests = filter_client_requests client_requests in
   let params = parameter_request filtered_client_requests server_parameters in
   if (List.mem `Subnet_mask client_requests) then (*It is crucial that subnet mask be at the head of the list: RFC 2132 states that in an options 
@@ -67,6 +67,6 @@ let make_options_no_lease ~client_requests ~server_parameters ~serverIP ~message
     |Some s ->  { op = message_type; opts= [`Server_identifier serverIP;s]@params@[`End]}
   else { op = message_type; opts= (`Server_identifier serverIP)::params@[`End]};;
 
-let make_options_lease2 ~client_requests ~server_parameters ~serverIP ~lease_length ~message_type =
-  let options = make_options_no_lease client_requests server_parameters serverIP message_type in
+let make_options_with_lease ~client_requests ~server_parameters ~serverIP ~lease_length ~message_type =
+  let options = make_options_without_lease client_requests server_parameters serverIP message_type in
   {op = options.op;opts = ((`Lease_time lease_length) :: options.opts)};;
