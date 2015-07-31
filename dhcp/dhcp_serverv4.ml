@@ -125,11 +125,18 @@ module Make (Console:V1_LWT.CONSOLE)
       else find_subnet ip_address t;; 
   
   let add_address address list =
-    list:=address::(!list)
+    list:=address::(!list);;
   
   let remove_available_address subnet address =
     let address_filter f = (f<>address) in
     subnet.available_addresses:=List.filter address_filter !(subnet.available_addresses);;
+  
+  let rec remove_assoc_rec (key:string) list = (*remove all associations*) (*TODO: this is broken...*)
+  match list with
+  |[] -> []
+  |(a,b) :: t ->
+    if a = key then remove_assoc_rec key t
+    else (a,b) :: (remove_assoc_rec key t);;
   
   (*DHCP Options*)
   
@@ -258,7 +265,7 @@ module Make (Console:V1_LWT.CONSOLE)
               let ip_address = (List.assoc client_identifier !(client_subnet.reserved_addresses)).reserved_ip_address in
               let new_reservation = client_identifier,{ip_address;lease_length;lease_timestamp=Clock.time()} in
               add_address new_reservation client_subnet.leases;
-              client_subnet.reserved_addresses:=List.remove_assoc client_identifier !(client_subnet.reserved_addresses);
+              client_subnet.reserved_addresses:= remove_assoc_rec client_identifier !(client_subnet.reserved_addresses);
               let options = make_options_with_lease ~client_requests: client_requests ~server_parameters:server_parameters ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
               output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ip_address ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
             )
@@ -278,18 +285,20 @@ module Make (Console:V1_LWT.CONSOLE)
               else (*address is not available, either because it's taken or because it's not on this subnet send Nak*)
                 let options = make_options_without_lease ~serverIP:serverIP ~message_type:`Nak ~client_requests: client_requests ~server_parameters:server_parameters in
                 output_broadcast t ~xid:xid ~nak:true ~ciaddr:ciaddr ~yiaddr:(Ipaddr.V4.unspecified) ~siaddr:(Ipaddr.V4.unspecified) ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
-            else (*client in renew or rebind. TODO, can use the dst IP address in the function prototype to case split these*)
+            else (*client in renew or rebind.*)
               if (List.mem dst t.serverIPs) then (*the packet was unicasted here, it's a renewal*)
+                (*Note: RFC 2131 states that the server should trust the client here, despite potential security issues, e.g. a client maliciously renewing the address of a different client
+                to a much shorter time period*)
                 let new_reservation = client_identifier,{ip_address=ciaddr;lease_length=lease_length;lease_timestamp=Clock.time()} in
                 (*delete previous record and create a new one. Currently, accept all renewals*)
-                client_subnet.leases:= List.remove_assoc client_identifier !(client_subnet.leases);
+                client_subnet.leases:= remove_assoc_rec client_identifier !(client_subnet.leases);
                 add_address new_reservation client_subnet.leases;
                 let options = make_options_with_lease ~client_requests: client_requests ~server_parameters:server_parameters ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
                 output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
               else if (dst = Ipaddr.V4.broadcast) then (*the packet was multicasted, it's a rebinding*)
                 if (List.mem_assoc client_identifier !(client_subnet.leases)) then (*this server is responsible for this . NB this an exact copy of the renewal code*)
                   let new_reservation = client_identifier,{ip_address=ciaddr;lease_length=lease_length;lease_timestamp=Clock.time()} in
-                  client_subnet.leases:= List.remove_assoc client_identifier !(client_subnet.leases);
+                  client_subnet.leases:= remove_assoc_rec client_identifier !(client_subnet.leases);
                   add_address new_reservation client_subnet.leases;
                   let options = make_options_with_lease ~client_requests: client_requests ~server_parameters:server_parameters ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
                   output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
@@ -302,16 +311,16 @@ module Make (Console:V1_LWT.CONSOLE)
           let ip_address = (List.assoc chaddr !(client_subnet.reserved_addresses)).reserved_ip_address in
           let new_reservation = "Unknown", {ip_address;lease_length=Int32.max_int;lease_timestamp=Clock.time()} in (*set lease to the maximum: this means it won't expire*)
           add_address new_reservation client_subnet.leases; (*must notify network admin*)
-          client_subnet.reserved_addresses:=List.remove_assoc client_identifier !(client_subnet.reserved_addresses);
+          client_subnet.reserved_addresses:=remove_assoc_rec client_identifier !(client_subnet.reserved_addresses);
           Lwt.return_unit;
         with
           |Not_found -> Lwt.return_unit;)
-      |`Release -> (*this may give errors with duplicate packets, should wipe ALL entries*)
+      |`Release -> (*this may give errors with duplicate packets, MUST wipe ALL entries*)
         let entry = client_identifier in
         Console.log t.c (sprintf "Packet is a release");
         if (List.mem_assoc entry !(client_subnet.leases)) then (
           add_address ciaddr client_subnet.available_addresses;
-          client_subnet.leases:=List.remove_assoc entry !(client_subnet.leases));
+          client_subnet.leases:=remove_assoc_rec entry !(client_subnet.leases));
           Lwt.return_unit;
       |`Inform ->
         let options = make_options_without_lease ~client_requests:client_requests ~serverIP:serverIP ~server_parameters:server_parameters ~message_type:`Ack in
