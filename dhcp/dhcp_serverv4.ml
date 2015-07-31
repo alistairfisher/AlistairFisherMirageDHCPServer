@@ -1,4 +1,4 @@
-(*Initial DHCP- need to hashtables, dynamic allocation only,server IP is always this server,
+(*Initial DHCP- need to hashtables, dynamic allocation only,server IP is always this server, address spaces are contiguous
 no probing before reusing address,no customisation of hardware options, reading params from config file (WIP), account for clock drift*)
 
 (*Features implemented:
@@ -35,13 +35,13 @@ module Make (Console:V1_LWT.CONSOLE)
   (Clock:V1.CLOCK)
   (Stack:V1_LWT.STACKV4) = struct
 
-  type reserved_address = {
+  type reserved_address = { (*An address that has been offered to a client, but not yet accepted*)
     reserved_ip_address: Ipaddr.V4.t;
     xid: Cstruct.uint32;
     reservation_timestamp: float;
   }
     
-  type in_use_address = { (*this is the value associated with the clientID key*)
+  type lease = {
     lease_length:int32;
     lease_timestamp:float;
     ip_address: Ipaddr.V4.t;
@@ -56,11 +56,11 @@ module Make (Console:V1_LWT.CONSOLE)
   type subnet = {
     subnet: Ipaddr.V4.t;
     netmask: Ipaddr.V4.t;
-    parameters: Dhcpv4_option.t list;
+    parameters: Dhcpv4_option.t list; (*These will be used as DHCP options*)
     max_lease_length: int32;
     default_lease_length: int32;
     reserved_addresses:(clientID*reserved_address) list ref;
-    in_use_addresses:(clientID*in_use_address) list ref;
+    leases:(clientID*lease) list ref; (*TODO: when client database is done, remove client ID*)
     available_addresses: Ipaddr.V4.t list ref;
     serverIP: Ipaddr.V4.t; (*The IP address of the interface that should be used to communicate with hosts on this subnet*)
   }
@@ -105,21 +105,21 @@ module Make (Console:V1_LWT.CONSOLE)
     let a = Ipaddr.V4.to_int32 bottom in
     let b = Ipaddr.V4.to_int32 top in
     if a>b then []
-    else bottom::list_gen(Ipaddr.V4.of_int32(Int32.add a Int32.one),top);; (*TODO: this function requires an ugly conversion to int32 and back for incrementing/comparison, find more elegant solution*)
+    else bottom::list_gen(Ipaddr.V4.of_int32(Int32.add a Int32.one),top);; (*TODO: this function requires an ugly conversion to int32 and back for incrementing/comparison, needs more elegant solution*)
  
   let rec find_subnet ip_address subnets = (*Match an IP address to a subnet*)
-    let routing_prefix netmask address=
+    let routing_prefix netmask address= (*Find the routing prefix of address if it lived in the subnet with this netmask*)
       let open Ipaddr.V4 in
       let x = to_int32 address in
       let y = to_int32 netmask in
       of_int32(Int32.logand x y)
     in
-    let compare_address_to_subnet subnet =
+    let compare_address_to_subnet subnet = (*Compare the supplied ip address to one subnet: they are the same if they have the same routing prefix*)
       let prefix = routing_prefix (subnet.netmask) in
       (prefix subnet.subnet)=(prefix ip_address)
     in
     match subnets with
-    |[] -> raise (Error ("Subnet not found for subnet "^Ipaddr.V4.to_string(ip_address)))
+    |[] -> raise (Error ("Subnet not found for address "^Ipaddr.V4.to_string(ip_address)))
     |h::t ->
       if (compare_address_to_subnet h) then h
       else find_subnet ip_address t;; 
@@ -147,7 +147,7 @@ module Make (Console:V1_LWT.CONSOLE)
     {op = message_type;opts = [`Server_identifier serverIP;`End]};;
    
   (*This function is ultimately responsible for all outward bound traffic from the server*)  
-  let output_broadcast ?nak:(n=false) t ~xid ~ciaddr ~yiaddr ~siaddr ~giaddr ~chaddr ~flags ~options =
+  let output_broadcast ?nak:(n=false) t ~xid ~ciaddr ~yiaddr ~siaddr ~giaddr ~chaddr ~flags ~options = (*nak needs to be set for naks, because they have different sending options*)
     let options = Dhcpv4_option.Packet.to_bytes options in
     let options_len = Bytes.length options in
     let total_len = options_len + sizeof_dhcp in
@@ -218,6 +218,7 @@ module Make (Console:V1_LWT.CONSOLE)
     in
     let client_subnet = if (giaddr = Ipaddr.V4.unspecified) then t.server_subnet  
       else find_subnet giaddr (t.subnets) (*the client is not on the same subnet, the packet has travelled via a BOOTP relay (with address giaddr). Use the subnet that contains the relay*)     
+      (*TODO: Need to return unit quietly if subnet isn't found*)
     in
     let lease_length = match find packet (function `Lease_time requested_lease -> Some requested_lease |_ -> None) with
       |None -> client_subnet.default_lease_length
@@ -256,7 +257,7 @@ module Make (Console:V1_LWT.CONSOLE)
             if ((List.mem server_identifier (t.serverIPs)) && ((List.assoc client_identifier !(client_subnet.reserved_addresses)).xid=xid)) then ( (*the client is requesting the IP address, this is not a renewal. Need error handling*)
               let ip_address = (List.assoc client_identifier !(client_subnet.reserved_addresses)).reserved_ip_address in
               let new_reservation = client_identifier,{ip_address;lease_length;lease_timestamp=Clock.time()} in
-              add_address new_reservation client_subnet.in_use_addresses;
+              add_address new_reservation client_subnet.leases;
               client_subnet.reserved_addresses:=List.remove_assoc client_identifier !(client_subnet.reserved_addresses);
               let options = make_options_with_lease ~client_requests: client_requests ~server_parameters:server_parameters ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
               output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ip_address ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
@@ -270,7 +271,7 @@ module Make (Console:V1_LWT.CONSOLE)
               in
               if (List.mem requested_IP !(client_subnet.available_addresses)) then (*address is available, lease to client*)
                 let new_reservation = client_identifier,{ip_address=requested_IP;lease_length=lease_length;lease_timestamp=Clock.time()} in
-                add_address new_reservation client_subnet.in_use_addresses;
+                add_address new_reservation client_subnet.leases;
                 remove_available_address client_subnet requested_IP;
                 let options = make_options_with_lease ~client_requests: client_requests ~server_parameters:server_parameters ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
                 output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:requested_IP ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
@@ -281,15 +282,15 @@ module Make (Console:V1_LWT.CONSOLE)
               if (List.mem dst t.serverIPs) then (*the packet was unicasted here, it's a renewal*)
                 let new_reservation = client_identifier,{ip_address=ciaddr;lease_length=lease_length;lease_timestamp=Clock.time()} in
                 (*delete previous record and create a new one. Currently, accept all renewals*)
-                client_subnet.in_use_addresses:= List.remove_assoc client_identifier !(client_subnet.in_use_addresses);
-                add_address new_reservation client_subnet.in_use_addresses;
+                client_subnet.leases:= List.remove_assoc client_identifier !(client_subnet.leases);
+                add_address new_reservation client_subnet.leases;
                 let options = make_options_with_lease ~client_requests: client_requests ~server_parameters:server_parameters ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
                 output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
               else if (dst = Ipaddr.V4.broadcast) then (*the packet was multicasted, it's a rebinding*)
-                if (List.mem_assoc client_identifier !(client_subnet.in_use_addresses)) then (*this server is responsible for this . NB this an exact copy of the renewal code*)
+                if (List.mem_assoc client_identifier !(client_subnet.leases)) then (*this server is responsible for this . NB this an exact copy of the renewal code*)
                   let new_reservation = client_identifier,{ip_address=ciaddr;lease_length=lease_length;lease_timestamp=Clock.time()} in
-                  client_subnet.in_use_addresses:= List.remove_assoc client_identifier !(client_subnet.in_use_addresses);
-                  add_address new_reservation client_subnet.in_use_addresses;
+                  client_subnet.leases:= List.remove_assoc client_identifier !(client_subnet.leases);
+                  add_address new_reservation client_subnet.leases;
                   let options = make_options_with_lease ~client_requests: client_requests ~server_parameters:server_parameters ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
                   output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
                 else (*this server is not responsible for this binding*)
@@ -300,7 +301,7 @@ module Make (Console:V1_LWT.CONSOLE)
         (try
           let ip_address = (List.assoc chaddr !(client_subnet.reserved_addresses)).reserved_ip_address in
           let new_reservation = "Unknown", {ip_address;lease_length=Int32.max_int;lease_timestamp=Clock.time()} in (*set lease to the maximum: this means it won't expire*)
-          add_address new_reservation client_subnet.in_use_addresses; (*must notify network admin*)
+          add_address new_reservation client_subnet.leases; (*must notify network admin*)
           client_subnet.reserved_addresses:=List.remove_assoc client_identifier !(client_subnet.reserved_addresses);
           Lwt.return_unit;
         with
@@ -308,9 +309,9 @@ module Make (Console:V1_LWT.CONSOLE)
       |`Release -> (*this may give errors with duplicate packets, should wipe ALL entries*)
         let entry = client_identifier in
         Console.log t.c (sprintf "Packet is a release");
-        if (List.mem_assoc entry !(client_subnet.in_use_addresses)) then (
+        if (List.mem_assoc entry !(client_subnet.leases)) then (
           add_address ciaddr client_subnet.available_addresses;
-          client_subnet.in_use_addresses:=List.remove_assoc entry !(client_subnet.in_use_addresses));
+          client_subnet.leases:=List.remove_assoc entry !(client_subnet.leases));
           Lwt.return_unit;
       |`Inform ->
         let options = make_options_without_lease ~client_requests:client_requests ~serverIP:serverIP ~server_parameters:server_parameters ~message_type:`Ack in
@@ -332,7 +333,7 @@ module Make (Console:V1_LWT.CONSOLE)
     in
     let rec gc = function
     |[]-> (Time.sleep collection_interval)>>=fun()->(garbage_collect t collection_interval)
-    |subnet::tail -> subnet.reserved_addresses:=(gc_reserved !(subnet.reserved_addresses));(subnet.in_use_addresses:=(gc_in_use !(subnet.in_use_addresses)));gc tail
+    |subnet::tail -> subnet.reserved_addresses:=(gc_reserved !(subnet.reserved_addresses));(subnet.leases:=(gc_in_use !(subnet.leases)));gc tail
     in
     gc (t.subnets);;
 
@@ -359,7 +360,7 @@ module Make (Console:V1_LWT.CONSOLE)
       let scope_bottom = get !(subnet_parameters.scope_bottom) in
       let scope_top = get !(subnet_parameters.scope_top) in
       let reserved_addresses = ref [] in
-      let in_use_addresses= ref [] in
+      let leases= ref [] in
       let available_addresses = ref (list_gen (scope_bottom,scope_top)) in
       let max_lease_length =
         let subnet_lease = !(subnet_parameters.max_lease_length) in
@@ -381,7 +382,7 @@ module Make (Console:V1_LWT.CONSOLE)
       in
       let serverIP=(List.hd serverIPs) in (*RFC 2131 states that the server SHOULD adjust the IP address it provides according to the location of the client (page 22 paragraph 2).
       It MUST pick one that it believes is reachable by the client. TODO: adjust IP according to client location*)
-      let subnet_record = {subnet;netmask;parameters;max_lease_length;default_lease_length;reserved_addresses;in_use_addresses;available_addresses;serverIP} in
+      let subnet_record = {subnet;netmask;parameters;max_lease_length;default_lease_length;reserved_addresses;leases;available_addresses;serverIP} in
       subnet_record::(extract_subnets t)
     in
     let subnets = extract_subnets !(parameters.subnets) in
