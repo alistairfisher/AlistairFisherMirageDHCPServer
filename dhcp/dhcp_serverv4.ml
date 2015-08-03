@@ -137,12 +137,10 @@ module Make (Console:V1_LWT.CONSOLE)
   |(a,b) :: t ->
     if a = key then remove_assoc_rec key t
     else (a,b) :: (remove_assoc_rec key t);;
-   
-  (*This function is ultimately responsible for all outward bound traffic from the server*)  
-  let output_broadcast ?nak:(n=false) t ~xid ~ciaddr ~yiaddr ~siaddr ~giaddr ~chaddr ~flags ~options = (*nak needs to be set for naks, because they have different sending options*)
+  
+  let construct_packet ~nak t ~xid ~ciaddr ~yiaddr ~siaddr ~giaddr ~chaddr ~flags ~options =
     let options = Dhcpv4_option.Packet.to_bytes options in
     let options_len = Bytes.length options in
-    let total_len = options_len + sizeof_dhcp in
     let buf = Io_page.(to_cstruct (get 1)) in
     set_dhcp_op buf (mode_to_int BootReply); (*All server messages use the op BOOTREPLY*)
     set_dhcp_htype buf 1; (*Default to ethernet, TODO: implement other hardware types*)
@@ -163,14 +161,19 @@ module Make (Console:V1_LWT.CONSOLE)
     Cstruct.blit_from_string options 0 buf sizeof_dhcp options_len;
     let dest_ip_address =
       if(giaddr <> Ipaddr.V4.unspecified) then giaddr (*giaddr set: forward onto the correct BOOTP relay*) (*see RFC 2131 page 22 for more info on dest address selection*)
-      else if n then Ipaddr.V4.broadcast (*Naks must be broadcast unless they are sent to the giaddr.*)
+      else if nak then Ipaddr.V4.broadcast (*Naks must be broadcast unless they are sent to the giaddr.*)
       else if (ciaddr <> Ipaddr.V4.unspecified) then ciaddr (*giaddr not set, ciaddr set: unicast to ciaddr*)
       else if (flags = 0) then yiaddr (*ciaddr and giaddr not set, broadcast flag not set: unicast to yiaddr.
       Problem: currently only 1 DHCP flag is used, so this is valid, if other flags start seeing use, this will no longer work*)
       else Ipaddr.V4.broadcast (*ciaddr and giaddr not set, broadcast flag set.*)
     in
-    let buf = Cstruct.set_len buf (sizeof_dhcp + options_len) in
-      Console.log_s t.c (sprintf "Sending DHCP packet (length %d)" total_len)
+    Cstruct.set_len buf (sizeof_dhcp + options_len),dest_ip_address ;;
+   
+  (*This function is ultimately responsible for all outward bound traffic from the server*)  
+  let output_broadcast ?nak:(n=false) t ~xid ~ciaddr ~yiaddr ~siaddr ~giaddr ~chaddr ~flags ~options = (*nak needs to be set for naks, because they have different sending options*)
+    let buf,dest_ip_address = construct_packet ~nak:n t ~xid:xid ~ciaddr:ciaddr ~yiaddr:yiaddr ~siaddr:siaddr ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options 
+      in
+      Console.log_s t.c (sprintf "Sending DHCP packet")
       >>= fun () ->
         Stack.UDPV4.write ~dest_ip: dest_ip_address ~source_port:67 ~dest_port:68 (Stack.udpv4 t.stack) buf;; (*DHCP uses port 67 for the server and 68 for the client*)
   
