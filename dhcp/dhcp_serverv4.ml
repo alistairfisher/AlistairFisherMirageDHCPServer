@@ -211,7 +211,10 @@ module Make (Console:V1_LWT.CONSOLE)
       |None -> chaddr
       |Some id-> Console.log t.c (sprintf "Client identifer set to %s" id);id
     in
-    let client_subnet = if (giaddr = Ipaddr.V4.unspecified) then t.server_subnet  
+    let client_subnet =
+      if (giaddr = Ipaddr.V4.unspecified) then (*either unicasted or on same subnet*)
+        (if dst = (Ipaddr.V4.broadcast) then t.server_subnet (*broadcasted -> on same subnet*)
+        else find_subnet src (t.subnets)) (*else unicasted, can use source address to find subnets*)
       else find_subnet giaddr (t.subnets) (*the client is not on the same subnet, the packet has travelled via a BOOTP relay (with address giaddr). Use the subnet that contains the relay*)     
       (*TODO: Need to return unit quietly if subnet isn't found*)
     in
