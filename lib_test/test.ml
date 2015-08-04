@@ -18,6 +18,7 @@ let suite = [
   "arp"    , Test_arp.suite     ;
   "connect", Test_connect.suite ;
   "iperf"  , Test_iperf.suite   ;
+  "dhcp server",Test_dhcp_server.suite;
 ]
 
 let run test () =
