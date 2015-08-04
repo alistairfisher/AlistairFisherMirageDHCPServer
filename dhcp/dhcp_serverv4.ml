@@ -138,7 +138,7 @@ module Make (Console:V1_LWT.CONSOLE)
     if a = key then remove_assoc_rec key t
     else (a,b) :: (remove_assoc_rec key t);;
   
-  let construct_packet ~nak t ~xid ~ciaddr ~yiaddr ~siaddr ~giaddr ~chaddr ~flags ~options =
+  let construct_packet ?nak:(n=false) t ~xid ~ciaddr ~yiaddr ~siaddr ~giaddr ~chaddr ~flags ~options =
     let options = Dhcpv4_option.Packet.to_bytes options in
     let options_len = Bytes.length options in
     let buf = Io_page.(to_cstruct (get 1)) in
@@ -168,17 +168,9 @@ module Make (Console:V1_LWT.CONSOLE)
       else Ipaddr.V4.broadcast (*ciaddr and giaddr not set, broadcast flag set.*)
     in
     Cstruct.set_len buf (sizeof_dhcp + options_len),dest_ip_address ;;
-   
-  (*This function is ultimately responsible for all outward bound traffic from the server*)  
-  let output_broadcast ?nak:(n=false) t ~xid ~ciaddr ~yiaddr ~siaddr ~giaddr ~chaddr ~flags ~options = (*nak needs to be set for naks, because they have different sending options*)
-    let buf,dest_ip_address = construct_packet ~nak:n t ~xid:xid ~ciaddr:ciaddr ~yiaddr:yiaddr ~siaddr:siaddr ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options 
-    in
-    Console.log_s t.c (sprintf "Sending DHCP packet")
-      >>= fun () ->
-      Stack.UDPV4.write ~dest_ip: dest_ip_address ~source_port:67 ~dest_port:68 (Stack.udpv4 t.stack) buf;; (*DHCP uses port 67 for the server and 68 for the client*)
   
   (*unwrap DHCP packet, case split depending on the contents*)
-  let input t ~src ~dst ~src_port:_ buf = (*lots of duplication with client, need to combine into one unit*)
+  let parse_packet t ~src ~dst buf = (*lots of duplication with client, need to combine into one unit*)
     let ciaddr = Ipaddr.V4.of_int32 (get_dhcp_ciaddr buf) in
     let yiaddr = Ipaddr.V4.of_int32 (get_dhcp_yiaddr buf) in
     let siaddr = Ipaddr.V4.of_int32 (get_dhcp_siaddr buf) in
@@ -246,7 +238,7 @@ module Make (Console:V1_LWT.CONSOLE)
         let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
         ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Offer in
         (*send DHCP Offer*)
-        output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:reserved_ip_address ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
+        Some construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:reserved_ip_address ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
       |`Request ->
         Console.log t.c (sprintf "Packet is a request");
         (match (find packet(function `Server_identifier id ->Some id |_ -> None)) with
@@ -261,9 +253,9 @@ module Make (Console:V1_LWT.CONSOLE)
               client_subnet.reserved_addresses:= remove_assoc_rec client_identifier !(client_subnet.reserved_addresses);
               let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
               ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
-              output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ip_address ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
+              Some (construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ip_address ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options);
             )
-            else Lwt.return_unit; (*either the request is for a different server or the xid doesn't match the server's most recent transaction with that client*)
+            else None; (*either the request is for a different server or the xid doesn't match the server's most recent transaction with that client*)
           |None -> (*this is a renewal, rebinding or init_reboot.*)
             if (ciaddr = Ipaddr.V4.unspecified) then (*client in init-reboot*)
               let requested_IP = match find packet (function `Requested_ip ip -> Some ip |_ -> None) with
@@ -276,11 +268,11 @@ module Make (Console:V1_LWT.CONSOLE)
                 remove_available_address client_subnet requested_IP;
                 let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
                 ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
-                output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:requested_IP ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
+                Some construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:requested_IP ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
               else (*address is not available, either because it's taken or because it's not on this subnet send Nak*)
                 let options = make_options_without_lease ~serverIP:serverIP ~message_type:`Nak ~client_requests: client_requests
                 ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters in
-                output_broadcast t ~xid:xid ~nak:true ~ciaddr:ciaddr ~yiaddr:(Ipaddr.V4.unspecified) ~siaddr:(Ipaddr.V4.unspecified) ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
+                Some construct_packet t ~xid:xid ~nak:true ~ciaddr:ciaddr ~yiaddr:(Ipaddr.V4.unspecified) ~siaddr:(Ipaddr.V4.unspecified) ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
             else (*client in renew or rebind.*)
               if (List.mem dst t.serverIPs) then (*the packet was unicasted here, it's a renewal*)
                 (*Note: RFC 2131 states that the server should trust the client here, despite potential security issues, e.g. a client maliciously renewing the address of a different client
@@ -291,7 +283,7 @@ module Make (Console:V1_LWT.CONSOLE)
                 add_address new_reservation client_subnet.leases;
                 let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
                 ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
-                output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
+                Some construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
               else if (dst = Ipaddr.V4.broadcast) then (*the packet was multicasted, it's a rebinding*)
                 if (List.mem_assoc client_identifier !(client_subnet.leases)) then (*this server is responsible for this . NB this an exact copy of the renewal code*)
                   let new_reservation = client_identifier,{ip_address=ciaddr;lease_length=lease_length;lease_timestamp=Clock.time()} in
@@ -299,10 +291,10 @@ module Make (Console:V1_LWT.CONSOLE)
                   add_address new_reservation client_subnet.leases;
                   let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
                   ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
-                  output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
+                  Some construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
                 else (*this server is not responsible for this binding*)
-                  Lwt.return_unit
-              else Lwt.return_unit (*error case, this should never be used*)
+                  None
+              else None (*error case, this should never be used*)
             )
       |`Decline -> (*This means that the client has discovered that the offered IP address is in use, the server responds by reserving the address until a client explicitly releases it*)
         (try
@@ -310,21 +302,21 @@ module Make (Console:V1_LWT.CONSOLE)
           let new_reservation = "Unknown", {ip_address;lease_length=Int32.max_int;lease_timestamp=Clock.time()} in (*set lease to the maximum: this means it won't expire*)
           add_address new_reservation client_subnet.leases; (*must notify network admin*)
           client_subnet.reserved_addresses:=remove_assoc_rec client_identifier !(client_subnet.reserved_addresses);
-          Lwt.return_unit;
+          None;
         with
-          |Not_found -> Lwt.return_unit;)
+          |Not_found -> None;)
       |`Release ->
         let entry = client_identifier in
         Console.log t.c (sprintf "Packet is a release");
         if (List.mem_assoc entry !(client_subnet.leases)) then (
           add_address ciaddr client_subnet.available_addresses;
           client_subnet.leases:=remove_assoc_rec entry !(client_subnet.leases));
-          Lwt.return_unit;
+          None;
       |`Inform ->
         let options = make_options_without_lease ~client_requests:client_requests ~serverIP:serverIP ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
         ~message_type:`Ack in
-        output_broadcast t ~xid:xid ~ciaddr:ciaddr ~yiaddr:yiaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
-      | _ -> Lwt.return_unit;; (*this is a packet meant for a client*)
+        Some construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:yiaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options;
+      | _ -> None;; (*this is a packet meant for a client*)
       
   let rec garbage_collect t collection_interval =
     Console.log t.c (sprintf "GC running!");
@@ -345,6 +337,14 @@ module Make (Console:V1_LWT.CONSOLE)
     in
     gc (t.subnets);;
 
+  let input t ~src ~dst ~src_port:_ buf =
+    match parse_packet t ~src:src ~dst:dst buf with
+    |None -> Lwt.return_unit;
+    |Some x ->
+      Console.log_s t.c (sprintf "Sending DHCP broadcast (length %d)" total_len)
+      >>= fun () ->
+        Udp.write ~dest_ip:Ipaddr.V4.broadcast ~source_port:68 ~dest_port:67 t.udp buf
+
   let serverThread t =
     Stack.listen_udpv4 (t.stack) 67 (input t);
     Lwt.return_unit;;
@@ -353,10 +353,10 @@ module Make (Console:V1_LWT.CONSOLE)
   |Some x->x
   |None -> raise (Error "Undefined parameter");;
   
-  let start ~c ~clock ~stack =
+  let set_up c clock stack filename =
     let serverIPs = Stack.IPV4.get_ip (Stack.ipv4 stack) in
     let open Dhcp_serverv4_config_parser in 
-    let parameters = Dhcp_serverv4_config_parser.read_DHCP_config in (*read parameters from /etc/dhcpd.conf*)
+    let parameters = Dhcp_serverv4_config_parser.read_DHCP_config filename in (*read parameters from /etc/dhcpd.conf*)
     (*extract global parameters*)
     let global_default_lease  = !(parameters.globals.default_lease_length) in
     let global_max_lease = !(parameters.globals.max_lease_length) in
@@ -398,6 +398,9 @@ module Make (Console:V1_LWT.CONSOLE)
       let test_IP = List.hd (serverIPs) in
       find_subnet test_IP subnets
     in
-    let t = {c;stack;server_subnet;serverIPs;subnets;global_parameters} in
-    Lwt.join([serverThread t; garbage_collect t 60.0]);; 
+    {c;stack;server_subnet;serverIPs;subnets;global_parameters};;
+  
+  let start ~c ~clock ~stack = 
+    let t = set_up c clock stack "/etc/dhcpd.conf" in
+    Lwt.join([serverThread t;garbage_collect 60.0]);;
 end

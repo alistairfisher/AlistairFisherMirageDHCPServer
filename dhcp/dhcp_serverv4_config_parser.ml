@@ -321,7 +321,7 @@ let lexing input_channel =
   let lines = line_parser input_channel 1 in
   List.concat lines;; (*now have a list of declarations, labelled with their original line number*)
    
-let read_DHCP_config =
-  let input_channel = open_in "/etc/dhcpd.conf" in
+let read_DHCP_config filename=
+  let input_channel = open_in filename in
   let declarations = lexing input_channel in
   read_globals declarations
