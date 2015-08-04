@@ -172,10 +172,10 @@ module Make (Console:V1_LWT.CONSOLE)
   (*This function is ultimately responsible for all outward bound traffic from the server*)  
   let output_broadcast ?nak:(n=false) t ~xid ~ciaddr ~yiaddr ~siaddr ~giaddr ~chaddr ~flags ~options = (*nak needs to be set for naks, because they have different sending options*)
     let buf,dest_ip_address = construct_packet ~nak:n t ~xid:xid ~ciaddr:ciaddr ~yiaddr:yiaddr ~siaddr:siaddr ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options 
-      in
-      Console.log_s t.c (sprintf "Sending DHCP packet")
+    in
+    Console.log_s t.c (sprintf "Sending DHCP packet")
       >>= fun () ->
-        Stack.UDPV4.write ~dest_ip: dest_ip_address ~source_port:67 ~dest_port:68 (Stack.udpv4 t.stack) buf;; (*DHCP uses port 67 for the server and 68 for the client*)
+      Stack.UDPV4.write ~dest_ip: dest_ip_address ~source_port:67 ~dest_port:68 (Stack.udpv4 t.stack) buf;; (*DHCP uses port 67 for the server and 68 for the client*)
   
   (*unwrap DHCP packet, case split depending on the contents*)
   let input t ~src ~dst ~src_port:_ buf = (*lots of duplication with client, need to combine into one unit*)
