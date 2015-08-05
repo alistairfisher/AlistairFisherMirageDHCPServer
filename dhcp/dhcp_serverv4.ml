@@ -339,10 +339,10 @@ module Make (Console:V1_LWT.CONSOLE)
   let input t ~src ~dst ~src_port:_ buf =
     match parse_packet t ~src:src ~dst:dst buf with
     |None -> Lwt.return_unit;
-    |Some x ->
+    |Some (p,d) ->
       Console.log_s t.c (sprintf "Sending DHCP broadcast")
       >>= fun () ->
-        Stack.UDPV4.write ~dest_ip:Ipaddr.V4.broadcast ~source_port:68 ~dest_port:67 (Stack.udpv4 t.stack) buf
+        Stack.UDPV4.write ~dest_ip:d ~source_port:68 ~dest_port:67 (Stack.udpv4 t.stack) p
 
   let serverThread t =
     Stack.listen_udpv4 (t.stack) 67 (input t);
