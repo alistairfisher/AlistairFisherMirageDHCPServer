@@ -189,7 +189,7 @@ module Make (Console:V1_LWT.CONSOLE)
     in
     let chaddr = (chaddr_to_string) (copy_dhcp_chaddr buf) in
     let flags = get_dhcp_flags buf in
-    let options = Cstruct.(copy buf sizeof_dhcp (len buf - sizeof_dhcp)) in (*need to look inside the options packet to see if server id is set: this distinguishes a request from a renewal*)
+    let options = Cstruct.(copy buf sizeof_dhcp (len buf - sizeof_dhcp)) in
     let packet = Dhcpv4_option.Packet.of_bytes options in
     (*Lwt_list.iter_s (Console.log_s t.c) TODO: put this back
       [ "DHCP response:";
@@ -401,5 +401,5 @@ module Make (Console:V1_LWT.CONSOLE)
   
   let start ~c ~clock ~stack = 
     let t = server_set_up c clock stack "/etc/dhcpd.conf" in
-    Lwt.join([serverThread t;garbage_collect t 60.0]);;
+    Lwt.join([serverThread t;garbage_collect t 300.0]);;
 end
