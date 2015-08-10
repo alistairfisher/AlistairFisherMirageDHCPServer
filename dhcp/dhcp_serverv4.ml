@@ -31,9 +31,9 @@ open Lwt.Infix;;
 open Printf;;
 open OS;;
 
-module Make (Console:V1_LWT.CONSOLE)
-  (Clock:V1.CLOCK)
-  (Stack:V1_LWT.STACKV4) = struct
+module Helper (Console:V1_LWT.CONSOLE)
+  (Clock:V1.CLOCK) = struct
+
 
   type reserved_address = { (*An address that has been offered to a client, but not yet accepted*)
     reserved_ip_address: Ipaddr.V4.t;
@@ -63,15 +63,6 @@ module Make (Console:V1_LWT.CONSOLE)
     leases:(clientID*lease) list ref; (*TODO: when client database is done, remove client ID*)
     available_addresses: Ipaddr.V4.t list ref;
     serverIP: Ipaddr.V4.t; (*The IP address of the interface that should be used to communicate with hosts on this subnet*)
-  }
-    
-  type t = {
-    c: Console.t;
-    stack: Stack.t;
-    server_subnet: subnet; (*A handle on the subnet that the server lives on, convenient for allocating addresses to hosts on the same subnet as the server*)
-    serverIPs: Ipaddr.V4.t list;
-    subnets: subnet list;
-    global_parameters:  Dhcpv4_option.t list;
   }
 
   cstruct dhcp {
@@ -138,6 +129,14 @@ module Make (Console:V1_LWT.CONSOLE)
     if a = key then remove_assoc_rec key t
     else (a,b) :: (remove_assoc_rec key t);;
   
+  type t = {
+    (*c: Console.t;*)
+    server_subnet: subnet; (*A handle on the subnet that the server lives on, convenient for allocating addresses to hosts on the same subnet as the server*)
+    serverIPs: Ipaddr.V4.t list;
+    subnets: subnet list;
+    global_parameters:  Dhcpv4_option.t list;
+  }
+  
   let construct_packet ?nak:(n=false) t ~xid ~ciaddr ~yiaddr ~siaddr ~giaddr ~chaddr ~flags ~options =
     let options = Dhcpv4_option.Packet.to_bytes options in
     let options_len = Bytes.length options in
@@ -200,7 +199,7 @@ module Make (Console:V1_LWT.CONSOLE)
     let open Dhcpv4_option.Packet in
     let client_identifier = match find packet (function `Client_id id -> Some id |_ -> None) with (*If a client ID is explcitly provided, use it, else default to using client hardware address for id*)
       |None -> chaddr
-      |Some id-> Console.log t.c (sprintf "Client identifer set to %s" id);id
+      |Some id-> (*Console.log t.c (sprintf "Client identifer set to %s" id);*)id
     in
     let client_subnet =
       if (giaddr = Ipaddr.V4.unspecified) then (*either unicasted or on same subnet*)
@@ -228,23 +227,23 @@ module Make (Console:V1_LWT.CONSOLE)
             if List.mem requested_address !(client_subnet.available_addresses) then requested_address
             else List.hd !(client_subnet.available_addresses)
         in
-        Console.log t.c (sprintf "Packet is a discover, currently %d reserved addresses in this subnet" (List.length !(client_subnet.reserved_addresses)));
-        Console.log t.c (sprintf "Reserving %s for this client" (Ipaddr.V4.to_string reserved_ip_address));
+        (*Console.log t.c (sprintf "Packet is a discover, currently %d reserved addresses in this subnet" (List.length !(client_subnet.reserved_addresses)));
+        Console.log t.c (sprintf "Reserving %s for this client" (Ipaddr.V4.to_string reserved_ip_address));*)
         let new_reservation = client_identifier,{reserved_ip_address;xid;reservation_timestamp=Clock.time()} in
         add_address new_reservation client_subnet.reserved_addresses;
-        Console.log t.c (sprintf "Now %d reserved addresses" (List.length !(client_subnet.reserved_addresses)));
+        (*Console.log t.c (sprintf "Now %d reserved addresses" (List.length !(client_subnet.reserved_addresses)));*)
         remove_available_address client_subnet reserved_ip_address;
         let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
         ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Offer in
         (*send DHCP Offer*)
         Some (construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:reserved_ip_address ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options);
       |`Request ->
-        Console.log t.c (sprintf "Packet is a request");
+        (*Console.log t.c (sprintf "Packet is a request");*)
         (match (find packet(function `Server_identifier id ->Some id |_ -> None)) with
           |Some id -> (*This is a true request, client has no IP address*)
             let server_identifier = id
             in
-            Console.log t.c (sprintf "True request");
+            (*Console.log t.c (sprintf "True request");*)
             if ((List.mem server_identifier (t.serverIPs)) && ((List.assoc client_identifier !(client_subnet.reserved_addresses)).xid=xid)) then ( (*the client is requesting the IP address, this is not a renewal. Need error handling*)
               let ip_address = (List.assoc client_identifier !(client_subnet.reserved_addresses)).reserved_ip_address in
               let new_reservation = client_identifier,{ip_address;lease_length;lease_timestamp=Clock.time()} in
@@ -306,7 +305,7 @@ module Make (Console:V1_LWT.CONSOLE)
           |Not_found -> None;)
       |`Release ->
         let entry = client_identifier in
-        Console.log t.c (sprintf "Packet is a release");
+        (*Console.log t.c (sprintf "Packet is a release");*)
         if (List.mem_assoc entry !(client_subnet.leases)) then (
           add_address ciaddr client_subnet.available_addresses;
           client_subnet.leases:=remove_assoc_rec entry !(client_subnet.leases));
@@ -316,51 +315,19 @@ module Make (Console:V1_LWT.CONSOLE)
         ~message_type:`Ack in
         Some (construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:yiaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options);
       | _ -> None;; (*this is a packet meant for a client*)
-      
-  let rec garbage_collect t collection_interval =
-    Console.log t.c (sprintf "GC running!");
-    let rec gc_reserved =function
-      |[] -> []
-      |h::t -> if (Clock.time()-.(snd h).reservation_timestamp > collection_interval) then (gc_reserved t)
-        else (gc_reserved t)
-    in
-    let rec gc_in_use = function
-      |[] -> []
-      |h::t -> 
-        let lease = Int32.to_int((snd h).lease_length) in
-        if (lease != 0xffffffff && (int_of_float(Clock.time()-.(snd h).lease_timestamp) > lease)) then gc_in_use t else h::(gc_in_use t)
-    in
-    let rec gc = function
-    |[]-> (Time.sleep collection_interval)>>=fun()->(garbage_collect t collection_interval)
-    |subnet::tail -> subnet.reserved_addresses:=(gc_reserved !(subnet.reserved_addresses));(subnet.leases:=(gc_in_use !(subnet.leases)));gc tail
-    in
-    gc (t.subnets);;
-
-  let input t ~src ~dst ~src_port:_ buf =
-    match parse_packet t ~src:src ~dst:dst buf with
-    |None -> Lwt.return_unit;
-    |Some (p,d) ->
-      Console.log_s t.c (sprintf "Sending DHCP broadcast")
-      >>= fun () ->
-        Stack.UDPV4.write ~dest_ip:d ~source_port:68 ~dest_port:67 (Stack.udpv4 t.stack) p
-
-  let serverThread t =
-    Stack.listen_udpv4 (t.stack) 67 (input t);
-    Lwt.return_unit;;
   
-  let get = function (*replace with dedictaed function*)
-  |Some x->x
-  |None -> raise (Error "Undefined parameter");;
-  
-  let server_set_up c clock stack filename = (*filename is handle of config file*)
-    let serverIPs = Stack.IPV4.get_ip (Stack.ipv4 stack) in
-    let open Dhcp_serverv4_config_parser in 
-    let parameters = Dhcp_serverv4_config_parser.read_DHCP_config filename in (*read parameters from /etc/dhcpd.conf*)
-    (*extract global parameters*)
-    let global_default_lease  = !(parameters.globals.default_lease_length) in
-    let global_max_lease = !(parameters.globals.max_lease_length) in
-    let global_parameters = !(parameters.globals.parameters) in
-    let rec extract_subnets = function
+let read_config serverIPs filename = 
+  let open Dhcp_serverv4_config_parser in
+  let get = function
+    |Some x->x
+    |None -> raise (Error "Undefined parameter")
+  in
+  let parameters = Dhcp_serverv4_config_parser.read_DHCP_config filename in (*read parameters from /etc/dhcpd.conf*)
+  (*extract global parameters*)
+  let global_default_lease  = !(parameters.globals.default_lease_length) in
+  let global_max_lease = !(parameters.globals.max_lease_length) in
+  let global_parameters = !(parameters.globals.parameters) in
+  let rec extract_subnets = function
     |[]-> []
     |(subnet,netmask,subnet_parameters)::t ->
       let parameters = (`Subnet_mask netmask)::(!(subnet_parameters.parameters)) in 
@@ -388,18 +355,62 @@ module Make (Console:V1_LWT.CONSOLE)
           |None -> raise (Error ("No default lease length for subnet "^(Ipaddr.V4.to_string subnet)))
       in
       let serverIP=(List.hd serverIPs) in (*RFC 2131 states that the server SHOULD adjust the IP address it provides according to the location of the client (page 22 paragraph 2).
-      It MUST pick one that it believes is reachable by the client. TODO: adjust IP according to client location*)
+          It MUST pick one that it believes is reachable by the client. TODO: adjust IP according to client location*)
       let subnet_record = {subnet;netmask;parameters;max_lease_length;default_lease_length;reserved_addresses;leases;available_addresses;serverIP} in
       subnet_record::(extract_subnets t)
+  in
+  (extract_subnets !(parameters.subnets)),global_parameters
+  
+  let rec garbage_collect t collection_interval=
+    (*Console.log t.c (sprintf "GC running!");*)
+    let rec gc_reserved =function
+      |[] -> []
+      |h::t -> if (Clock.time()-.(snd h).reservation_timestamp > collection_interval) then (gc_reserved t)
+        else (gc_reserved t)
     in
-    let subnets = extract_subnets !(parameters.subnets) in
+    let rec gc_in_use = function
+      |[] -> []
+      |h::t -> 
+        let lease = Int32.to_int((snd h).lease_length) in
+        if (lease != 0xffffffff && (int_of_float(Clock.time()-.(snd h).lease_timestamp) > lease)) then gc_in_use t else h::(gc_in_use t)
+    in
+    let rec gc = function
+      |[]-> (Time.sleep collection_interval)>>=fun()->(garbage_collect t collection_interval)
+      |subnet::tail -> subnet.reserved_addresses:=(gc_reserved !(subnet.reserved_addresses));(subnet.leases:=(gc_in_use !(subnet.leases)));gc tail
+    in
+    gc (t.subnets);;
+    
+end  
+  
+module Make (Console:V1_LWT.CONSOLE)
+  (Clock:V1.CLOCK)
+  (Stack:V1_LWT.STACKV4) = struct
+  
+  module H = (Helper (Console) (Clock));;
+  open H;;
+  
+  let input t stack ~src ~dst ~src_port:_ buf =
+    match parse_packet t ~src:src ~dst:dst buf with
+    |None -> Lwt.return_unit;
+    |Some (p,d) ->
+      (*Console.log_s t.c (sprintf "Sending DHCP broadcast")
+      >>= fun () ->*)
+        Stack.UDPV4.write ~dest_ip:d ~source_port:68 ~dest_port:67 (Stack.udpv4 stack) p
+    
+  let server_set_up c stack =
+    let serverIPs = Stack.IPV4.get_ip (Stack.ipv4 stack) in
+    let subnets,global_parameters = read_config serverIPs "/etc/dhcpd.conf" in
     let server_subnet = (*assumption:all of the server's IPs are on the same subnet*)
       let test_IP = List.hd (serverIPs) in
       find_subnet test_IP subnets
     in
-    {c;stack;server_subnet;serverIPs;subnets;global_parameters};;
+    {server_subnet;serverIPs;subnets;global_parameters};;
+  
+  let serverThread t stack =
+    Stack.listen_udpv4 stack 67 (input t stack);
+    Lwt.return_unit;;
   
   let start ~c ~clock ~stack = 
-    let t = server_set_up c clock stack "/etc/dhcpd.conf" in
-    Lwt.join([serverThread t;garbage_collect t 300.0]);;
+    let t = server_set_up c stack in
+    Lwt.join([serverThread t stack;garbage_collect t 300.0]);;
 end
