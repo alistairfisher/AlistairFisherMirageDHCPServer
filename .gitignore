@@ -3,8 +3,8 @@ _build
 setup.data
 setup.log
 examples/
-lib/
-lib_test/
 tcp/
+lib/
+lib_test/dhcpd.conf
 tests/
 unix/
