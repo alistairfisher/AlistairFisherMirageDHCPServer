@@ -30,10 +30,10 @@ no probing before reusing address,no customisation of hardware options, reading 
 open Lwt.Infix;;
 open Printf;;
 open OS;;
+open Dhcpv4_util;;
 
 module Helper (Console:V1_LWT.CONSOLE)
   (Clock:V1.CLOCK) = struct
-
 
   type reserved_address = { (*An address that has been offered to a client, but not yet accepted*)
     reserved_ip_address: Ipaddr.V4.t;
@@ -64,33 +64,8 @@ module Helper (Console:V1_LWT.CONSOLE)
     available_addresses: Ipaddr.V4.t list ref;
     serverIP: Ipaddr.V4.t; (*The IP address of the interface that should be used to communicate with hosts on this subnet*)
   }
-
-  cstruct dhcp {
-    uint8_t op;
-    uint8_t htype;
-    uint8_t hlen;
-    uint8_t hops;
-    uint32_t xid;
-    uint16_t secs;
-    uint16_t flags;
-    uint32_t ciaddr;
-    uint32_t yiaddr;
-    uint32_t siaddr;
-    uint32_t giaddr;
-    uint8_t chaddr[16];
-    uint8_t sname[64];
-    uint8_t file[128];
-    uint32_t cookie
-  } as big_endian
-    
-  cenum mode {
-    BootRequest = 1;
-    BootReply
-  } as uint8_t
   
   exception Error of string;;
-  
-  exception Test;;
   
   (*Various helper functions*)
     

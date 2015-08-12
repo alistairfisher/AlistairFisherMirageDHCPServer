@@ -2,6 +2,7 @@
 
 open OUnit;;
 open Lwt.Infix;;
+open Dhcpv4_util;;
 open Dhcpv4_option;;
 open Dhcpv4_option.Packet;;
 open Common;;
@@ -153,6 +154,8 @@ let dhcp_response_test_requests_offers () =
   (*only the last one should receive a response, since when each discover will override the last one*)
   Lwt.return_unit;;
 
+let requested_ip_address1 = Ipaddr.V4.of_string_exn "192.1.1.10";; (*this should be available*)
+let requested_ip_address2 = Ipaddr.V4.of_string_exn "192.1.2.5";; (*wrong subnet*)
 let requested_ip_address3 = Ipaddr.V4.of_string_exn "192.1.3.8";;
 let requested_ip_address4 = Ipaddr.V4.of_string_exn "192.1.1.5";;
 

@@ -6,4 +6,5 @@ true: annot, bin_annot, principal, strict_sequence, debug
 <lib/arpv4.ml>: pkg_cstruct.syntax
 <dhcp/dhcp_clientv4.ml>: pkg_cstruct.syntax
 <dhcp/dhcp_serverv4.ml>: pkg_cstruct.syntax
+<dhcp/dhcpv4_util.ml>: pkg_cstruct.syntax
 <lib_test/test_dhcp_server.ml>: pkg_cstruct.syntax
