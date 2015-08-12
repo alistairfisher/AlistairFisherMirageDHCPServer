@@ -11,7 +11,8 @@ open Console;;
 let client_mac_address = "10:9a:dd:c0:ff:ee";;
 let client_ip_address = Ipaddr.V4.of_string_exn "192.1.1.10";; (*Used in renewals, rebindings and init-reboot tests*)
 let server_ip_address = Ipaddr.V4.of_string_exn "192.1.1.1";; (*Ensure config file agrees*)
-let gateway_ip_address = Ipaddr.V4.of_string_exn "192.1.2.1";;
+let gateway_ip_address1 = Ipaddr.V4.of_string_exn "192.1.2.1";;
+let gateway_ip_address2 = Ipaddr.V4.of_string_exn "192.1.3.1";;
 let unspecified = Ipaddr.V4.unspecified;;
 let unspecifiedint32 = Int32.of_int 0;;
 
@@ -51,7 +52,7 @@ let dhcp_packet_builder xid flags ciaddr yiaddr siaddr giaddr options=
 
 let options op = {op=`Discover;opts=[]} (*Test options fully separately*)
 
-let test_case ~xid ~flags ~ciaddr ~yiaddr ~siaddr ~giaddr ~options ~dest ~response_expected ~options_test ~expected_yiaddr=
+let test_case ~xid ~flags ~ciaddr ~yiaddr ~siaddr ~giaddr ~options ~dest ~response_expected ~options_test ~expected_yiaddr =
   let packet = dhcp_packet_builder xid flags ciaddr yiaddr siaddr giaddr options in
   let result = parse_packet t ~src:client_ip_address ~dst:server_ip_address packet in (*the server's response to the packet*)
   match result,response_expected with
@@ -60,18 +61,16 @@ let test_case ~xid ~flags ~ciaddr ~yiaddr ~siaddr ~giaddr ~options ~dest ~respon
   |Some _,false -> assert_failure "No response expected, response received"
   |Some (p,dst),true ->
     let open Dhcp_clientv4 in
-    assert_equal 1 (get_dhcp_op p);
+    assert_equal 2 (get_dhcp_op p); (*Server messages always have op type 2*)
     assert_equal 1 (get_dhcp_htype p);
     assert_equal 6 (get_dhcp_hlen p);
     assert_equal 0 (get_dhcp_hops p);
     assert_equal xid (get_dhcp_xid p);
     assert_equal 0 (get_dhcp_secs p);
     assert_equal (Ipaddr.V4.unspecified) (Ipaddr.V4.of_int32(get_dhcp_ciaddr p));
-    assert_equal (server_ip_address) (Ipaddr.V4.of_int32(get_dhcp_siaddr p)); (*TODO: this is valid for this server implentation, but not all implementations*)
     assert_equal flags (get_dhcp_flags p);
     assert_equal expected_yiaddr (Ipaddr.V4.of_int32(get_dhcp_yiaddr p));
-    assert_equal giaddr (Ipaddr.V4.of_int32(get_dhcp_giaddr p)); (*TODO: test client hardware address, test broadcast vs unicast*)
-    assert_equal ciaddr (Ipaddr.V4.of_int32(get_dhcp_ciaddr p));
+    assert_equal giaddr (Ipaddr.V4.of_int32(get_dhcp_giaddr p)); (*TODO: test client hardware address, test broadcast vs unicast,siaddr*)
     let server_options1 = Cstruct.(copy p sizeof_dhcp (len p - sizeof_dhcp)) in
     let server_options2 = Dhcpv4_option.Packet.of_bytes server_options1 in
     options_test server_options2;;
@@ -97,13 +96,13 @@ let discover_test_case = (*A partially applied version of the testing function f
 
 let dhcp_discover_test ()=
   let open Int32 in
-  discover_test_case ~xid:(of_int 0) ~flags:0 ~giaddr:unspecified ~response_expected:true ~expected_yiaddr:(Ipaddr.V4.of_string_exn "192.1.1.2");
+  discover_test_case ~xid:(of_int 10) ~flags:0 ~giaddr:unspecified ~response_expected:true ~expected_yiaddr:(Ipaddr.V4.of_string_exn "192.1.1.2");
   (*Client on same subnet, correctly configured, unicast reply*)
-  discover_test_case ~xid:(of_int 1) ~flags:1 ~giaddr:unspecified ~response_expected:true ~expected_yiaddr:(Ipaddr.V4.of_string_exn "192.1.1.3");
+  discover_test_case ~xid:(of_int 11) ~flags:1 ~giaddr:unspecified ~response_expected:true ~expected_yiaddr:(Ipaddr.V4.of_string_exn "192.1.1.3");
   (*as above, with broadcast reply*)
-  discover_test_case ~xid:(of_int 2) ~flags:0 ~giaddr:gateway_ip_address ~response_expected:true ~expected_yiaddr:(Ipaddr.V4.of_string_exn "192.1.2.1");
+  discover_test_case ~xid:(of_int 12) ~flags:0 ~giaddr:gateway_ip_address1 ~response_expected:true ~expected_yiaddr:(Ipaddr.V4.of_string_exn "192.1.2.2");
   (*Client on different subnet, unicast reply*)
-  discover_test_case ~xid:(of_int 3) ~flags:1 ~giaddr:gateway_ip_address ~response_expected:true ~expected_yiaddr:(Ipaddr.V4.of_string_exn "192.1.2.2");
+  discover_test_case ~xid:(of_int 13) ~flags:1 ~giaddr:gateway_ip_address1 ~response_expected:true ~expected_yiaddr:(Ipaddr.V4.of_string_exn "192.1.2.3");
   (*as above, with broadcast reply*)
   (*TODO
   test_case ~xid:4 ~flags:1 ~ciaddr:client_ip_address ~yiaddr: client_ip_address ~siaddr:unspecified ~giaddr:unspecified ~options:discover_options ~dest:Ipaddr.V4.broadcast        ~tester:test_offer
@@ -128,7 +127,7 @@ let ack_options_test options =
   |None -> assert_failure "No offered lease length -> fail"
   |Some _->
     match find options (function `Server_identifier id -> Some id |_ -> None) with
-    |None -> assert_failure "No id provided -> fail"
+    |None -> assert_failure "No server id provided -> fail"
     |Some _-> ();;
 
 let nak_options_test options =
@@ -138,18 +137,23 @@ let response_test_case = (*this is for responding to offers*)
   test_case ~ciaddr:unspecified ~yiaddr:unspecified ~siaddr:unspecified ~options:request_options_with_serverID ~dest:Ipaddr.V4.broadcast ~options_test:ack_options_test;;
 
 let dhcp_response_test_requests_offers () =
-  (*Responding to a DHCP offer*)
+  let unitise x = () in
   let open Int32 in
-  response_test_case ~xid:(of_int 0) ~flags:0 ~giaddr:unspecified ~response_expected:false ~expected_yiaddr:(unspecified); (*same subnet, unicast reply*)
-  response_test_case ~xid:(of_int 1) ~flags:1 ~giaddr:unspecified ~response_expected:false ~expected_yiaddr:(unspecified); (*same subnet, broadcast reply*)
-  response_test_case ~xid:(of_int 2) ~flags:0 ~giaddr:gateway_ip_address ~response_expected:false ~expected_yiaddr:(unspecified); (*different subnet, unicast reply*)
-  response_test_case ~xid:(of_int 3) ~flags:1 ~giaddr:gateway_ip_address ~response_expected:true ~expected_yiaddr:(Ipaddr.V4.of_string_exn "192.1.2.2"); (*different subnet, broadcast reply*)
+  let packet = dhcp_packet_builder (of_int 21) 0 unspecified unspecified unspecified gateway_ip_address2 discover_options in
+  unitise (parse_packet t ~src:client_ip_address ~dst:server_ip_address packet);
+  (*Responding to a DHCP offer*)
+  (*
+  let reserved_ip_address = Ipaddr.V4.of_string_exn "192.1.3.1" in
+  let record = client_mac_address,{reserved_ip_address;xid=(of_int 21);reservation_timestamp=0.0} in
+  let subnet3 = List.nth (t.subnets) 1 in
+  subnet3.reserved_addresses := record::(!(subnet3.reserved_addresses));*)
+  response_test_case ~xid:(of_int 20) ~flags:0 ~giaddr:gateway_ip_address2 ~response_expected:false ~expected_yiaddr:(unspecified); (*same subnet, unicast reply*)
+  response_test_case ~xid:(of_int 21) ~flags:0 ~giaddr:gateway_ip_address2 ~response_expected:true ~expected_yiaddr:(Ipaddr.V4.of_string_exn "192.1.3.2"); (*same subnet, broadcast reply*)
+  response_test_case ~xid:(of_int 21) ~flags:0 ~giaddr:gateway_ip_address2 ~response_expected:false ~expected_yiaddr:(unspecified); (*different subnet, unicast reply*)
   (*only the last one should receive a response, since when each discover will override the last one*)
   Lwt.return_unit;;
 
-let requested_ip_address1 = Ipaddr.V4.of_string_exn "192.1.1.10";; (*this should be available*)
-let requested_ip_address2 = Ipaddr.V4.of_string_exn "192.1.2.5";; (*wrong subnet*)
-let requested_ip_address3 = Ipaddr.V4.of_string_exn "192.1.1.4";;
+let requested_ip_address3 = Ipaddr.V4.of_string_exn "192.1.3.8";;
 let requested_ip_address4 = Ipaddr.V4.of_string_exn "192.1.1.5";;
 
 let other_requests_test_case =
@@ -166,14 +170,15 @@ let dhcp_response_test_requests_others () = (*xid not provided*)
   ~expected_yiaddr:unspecified ~dest:Ipaddr.V4.broadcast ~options_test:nak_options_test; (*wrong subnet:nak*)
   other_requests_test_case ~xid:(of_int 7) ~ciaddr:unspecified ~giaddr:unspecified ~options:(request_options_without_serverID) ~response_expected:false ~expected_yiaddr:unspecified
   ~dest:Ipaddr.V4.broadcast ~options_test: nak_options_test;
- (*no requested address, should fail*)
+  (*no requested address, should fail*)
   (*Renew/Rebind*)
-  other_requests_test_case ~xid:(of_int 8) ~ciaddr:requested_ip_address3 ~giaddr:unspecified ~options:(request_options_without_serverID) ~response_expected:true ~expected_yiaddr:requested_ip_address3 ~dest:server_ip_address ~options_test:ack_options_test; (*this should work*)
-  other_requests_test_case ~xid:(of_int 9) ~ciaddr:requested_ip_address4 ~giaddr:gateway_ip_address ~options:(request_options_without_serverID) ~response_expected:true ~expected_yiaddr:requested_ip_address4 ~dest:server_ip_address ~options_test:ack_options_test;
+  other_requests_test_case ~xid:(of_int 8) ~ciaddr:requested_ip_address3 ~giaddr:gateway_ip_address2 ~options:(request_options_without_serverID) ~response_expected:true ~expected_yiaddr:requested_ip_address3 ~dest:server_ip_address ~options_test:ack_options_test; (*this should work*)
+  other_requests_test_case ~xid:(of_int 9) ~ciaddr:requested_ip_address4 ~giaddr:gateway_ip_address1 ~options:(request_options_without_serverID) ~response_expected:true ~expected_yiaddr:requested_ip_address4 ~dest:server_ip_address ~options_test:ack_options_test;
   (*this should still work for renew, even though the giaddr and ciaddr don't match: server must trust client, but should not work for rebind*)
   Lwt.return_unit;;
 
 let suite = 
   ["DHCP discover responses",`Quick,dhcp_discover_test;
   "DHCP request responses: completing an offer",`Quick,dhcp_response_test_requests_offers;
-  "DHCP request responses: init-reboot, rebind and renew",`Quick,dhcp_response_test_requests_others];;
+  "DHCP request responses: init-reboot, rebind and renew",`Quick,dhcp_response_test_requests_others;
+  ];;
