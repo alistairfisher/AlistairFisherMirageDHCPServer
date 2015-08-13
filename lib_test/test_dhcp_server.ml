@@ -193,12 +193,6 @@ let renewal_test () = (*xid not provided*)
   other_requests_test_case ~xid:(of_int 82) ~ciaddr:requested_ip_address4 ~giaddr:gateway_ip_address1 ~options:(request_options_without_serverID) ~response_expected:true ~expected_yiaddr:requested_ip_address4 ~dest:server_ip_address ~options_test:ack_options_test;
   Lwt.return_unit;;
 
-let rebinding_test () =
-  let open Int32 in
-  other_requests_test_case ~xid:(of_int 91) ~ciaddr:requested_ip_address3 ~giaddr:gateway_ip_address2 ~options:(request_options_without_serverID) ~response_expected:false ~expected_yiaddr:requested_ip_address3 ~dest:(Ipaddr.V4.broadcast) ~options_test:ack_options_test;
-  other_requests_test_case ~xid:(of_int 92) ~ciaddr:requested_ip_address4 ~giaddr:gateway_ip_address1 ~options:(request_options_without_serverID) ~response_expected:false ~expected_yiaddr:requested_ip_address4 ~dest:(Ipaddr.V4.broadcast) ~options_test:ack_options_test;
-  Lwt.return_unit;;
-
 let suite = 
   ["DHCP discovers on subnet are acknowledged correctly",`Quick,discover_on_subnet;
   "DHCP discovers off subnet are acknowledged correctly",`Quick,discover_off_subnet;
@@ -208,5 +202,4 @@ let suite =
   "Valid Init reboot handled correctly",`Quick,correct_init_reboot;
   "Invalid Init reboot is Nak'd",`Quick,incorrect_init_reboot;
   "Renewals are handled correctly",`Quick,renewal_test;
-  "Rebindings are handled correctly",`Quick,rebinding_test;
   ];;

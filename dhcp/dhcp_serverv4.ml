@@ -99,7 +99,7 @@ module Helper (Console:V1_LWT.CONSOLE)
     let address_filter f = (f<>address) in
     subnet.available_addresses:=List.filter address_filter !(subnet.available_addresses);;
   
-  let rec remove_assoc_rec (key:string) list = (*remove all associations*) (*TODO: this is broken...*)
+  let rec remove_assoc_rec (key:string) list = (*remove all associations*)
   match list with
   |[] -> []
   |(a,b) :: t ->
@@ -184,7 +184,6 @@ module Helper (Console:V1_LWT.CONSOLE)
         (if dst = (Ipaddr.V4.broadcast) then t.server_subnet (*broadcasted -> on same subnet*)
         else find_subnet src (t.subnets)) (*else unicasted, can use source address to find subnets*)
       else find_subnet giaddr (t.subnets) (*the client is not on the same subnet, the packet has travelled via a BOOTP relay (with address giaddr). Use the subnet that contains the relay*)     
-      (*TODO: Need to return None quietly if subnet isn't found*)
     in
     let lease_length = match find packet (function `Lease_time requested_lease -> Some requested_lease |_ -> None) with
       |None -> client_subnet.default_lease_length
@@ -218,7 +217,7 @@ module Helper (Console:V1_LWT.CONSOLE)
       |`Request ->
         (*Console.log t.c (sprintf "Packet is a request");*)
         (match (find packet(function `Server_identifier id ->Some id |_ -> None)) with
-          |Some id -> (*This is a true request, client has no IP address*)
+          |Some id -> (*This is a response to an offer*)
             let server_identifier = id
             in
             (*Console.log t.c (sprintf "True request");*)
@@ -251,8 +250,7 @@ module Helper (Console:V1_LWT.CONSOLE)
                 Some (construct_packet t ~xid:xid ~nak:true ~ciaddr:(Ipaddr.V4.unspecified) ~yiaddr:(Ipaddr.V4.unspecified) ~siaddr:(Ipaddr.V4.unspecified) ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options);
             else (*client in renew or rebind.*)
               if (List.mem dst t.serverIPs) then (*the packet was unicasted here, it's a renewal*)
-                (*Note: RFC 2131 states that the server should trust the client here, despite potential security issues, e.g. a client maliciously renewing the address of a different client
-                to a much shorter time period*)
+                (*Note: RFC 2131 states that the server should trust the client here, despite potential security issues*)
                 let new_reservation = client_identifier,{ip_address=ciaddr;lease_length=lease_length;lease_timestamp=Clock.time()} in
                 (*delete previous record and create a new one. Currently, accept all renewals*)
                 client_subnet.leases:= remove_assoc_rec client_identifier !(client_subnet.leases);
@@ -381,7 +379,7 @@ module Make (Console:V1_LWT.CONSOLE)
   let server_set_up c stack =
     let serverIPs = Stack.IPV4.get_ip (Stack.ipv4 stack) in
     let subnets,global_parameters = read_config serverIPs "/etc/dhcpd.conf" in
-    let server_subnet = (*assumption:all of the server's IPs are on the same subnet*)
+    let server_subnet = (*assumption: all of the server's IPs are on the same subnet*)
       let test_IP = List.hd (serverIPs) in
       find_subnet test_IP subnets
     in
