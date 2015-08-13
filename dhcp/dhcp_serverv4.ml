@@ -59,7 +59,7 @@ module Helper (Console:V1_LWT.CONSOLE)
     parameters: Dhcpv4_option.t list; (*These will be used as DHCP options*)
     max_lease_length: int32;
     default_lease_length: int32;
-    reserved_addresses:(clientID*reserved_address) list ref;
+    reservations:(clientID*reserved_address) list ref;
     leases:(clientID*lease) list ref; (*TODO: when client database is done, remove client ID*)
     available_addresses: Ipaddr.V4.t list ref;
     serverIP: Ipaddr.V4.t; (*The IP address of the interface that should be used to communicate with hosts on this subnet*)
@@ -92,19 +92,45 @@ module Helper (Console:V1_LWT.CONSOLE)
       if (compare_address_to_subnet h) then h
       else find_subnet ip_address t;; 
   
+  let rec remove_assoc_rec (key:string) list = (*remove all associations*)
+    match list with
+    |[] -> []
+    |(a,b) :: t ->
+      if a = key then remove_assoc_rec key t
+      else (a,b) :: (remove_assoc_rec key t);;
+  
   let add_address address list =
-    list:=address::(!list);;
+      list:=address::(!list);;
   
   let remove_available_address subnet address =
-    let address_filter f = (f<>address) in
-    subnet.available_addresses:=List.filter address_filter !(subnet.available_addresses);;
+      let address_filter f = (f<>address) in
+      subnet.available_addresses:=List.filter address_filter !(subnet.available_addresses);;
   
-  let rec remove_assoc_rec (key:string) list = (*remove all associations*)
-  match list with
-  |[] -> []
-  |(a,b) :: t ->
-    if a = key then remove_assoc_rec key t
-    else (a,b) :: (remove_assoc_rec key t);;
+  let remove_reservation subnet client_identifier = 
+      subnet.reservations := remove_assoc_rec client_identifier !(subnet.reservations);;
+  
+  let remove_lease subnet client_identifier =
+      subnet.leases:= remove_assoc_rec client_identifier !(subnet.leases);;
+  
+  let look_up_reserved_address subnet client_identifier =
+      (List.assoc client_identifier !(subnet.reservations)).reserved_ip_address;;
+  
+  let first_address subnet = List.hd !(subnet.available_addresses);;
+  
+  let find_reservation subnet client_identifier = 
+      List.assoc client_identifier !(subnet.reservations);;
+
+  let is_available address subnet = 
+      List.mem address !(subnet.available_addresses);;
+  
+  let find_lease subnet client_identifier = 
+      List.assoc client_identifier !(subnet.leases);;
+  
+  let exists_reservation subnet client_identifier = 
+      List.mem_assoc client_identifier !(subnet.reservations);;
+  
+  let exists_lease subnet client_identifier = 
+      List.mem_assoc client_identifier !(subnet.leases);;
   
   type t = {
     (*c: Console.t;*)
@@ -199,16 +225,16 @@ module Helper (Console:V1_LWT.CONSOLE)
     match packet.op with
       |`Discover -> (* TODO: should probe address via ICMP here, and ensure that it's actually free, and try a new one if not*)
         let reserved_ip_address = match find packet (function `Requested_ip requested_address -> Some requested_address | _ -> None) with (*check whether the client has requested a specific address, and if possible reserve it for them*)
-          |None-> List.hd !(client_subnet.available_addresses)
+          |None-> first_address client_subnet
           |Some requested_address ->
-            if List.mem requested_address !(client_subnet.available_addresses) then requested_address
-            else List.hd !(client_subnet.available_addresses)
+            if (is_available requested_address client_subnet) then requested_address
+            else first_address client_subnet
         in
-        (*Console.log t.c (sprintf "Packet is a discover, currently %d reserved addresses in this subnet" (List.length !(client_subnet.reserved_addresses)));
+        (*Console.log t.c (sprintf "Packet is a discover, currently %d reserved addresses in this subnet" (List.length !(client_subnet.reservations)));
         Console.log t.c (sprintf "Reserving %s for this client" (Ipaddr.V4.to_string reserved_ip_address));*)
         let new_reservation = client_identifier,{reserved_ip_address;xid;reservation_timestamp=Clock.time()} in
-        add_address new_reservation client_subnet.reserved_addresses;
-        (*Console.log t.c (sprintf "Now %d reserved addresses" (List.length !(client_subnet.reserved_addresses)));*)
+        add_address new_reservation client_subnet.reservations;
+        (*Console.log t.c (sprintf "Now %d reserved addresses" (List.length !(client_subnet.reservations)));*)
         remove_available_address client_subnet reserved_ip_address;
         let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
         ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Offer in
@@ -221,11 +247,11 @@ module Helper (Console:V1_LWT.CONSOLE)
             let server_identifier = id
             in
             (*Console.log t.c (sprintf "True request");*)
-            if ((List.mem server_identifier (t.serverIPs)) && ((List.assoc client_identifier !(client_subnet.reserved_addresses)).xid=xid)) then ( (*the client is requesting the IP address, this is not a renewal. Need error handling*)
-              let ip_address = (List.assoc client_identifier !(client_subnet.reserved_addresses)).reserved_ip_address in
+            if ((List.mem server_identifier (t.serverIPs)) && ((find_reservation client_subnet client_identifier).xid=xid)) then ( (*the client is requesting the IP address, this is not a renewal. Need error handling*)
+              let ip_address = (find_reservation client_subnet client_identifier).reserved_ip_address in
               let new_reservation = client_identifier,{ip_address;lease_length;lease_timestamp=Clock.time()} in
               add_address new_reservation client_subnet.leases;
-              client_subnet.reserved_addresses:= remove_assoc_rec client_identifier !(client_subnet.reserved_addresses);
+              remove_reservation client_subnet client_identifier;
               let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
               ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
               Some (construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ip_address ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options);
@@ -237,7 +263,7 @@ module Helper (Console:V1_LWT.CONSOLE)
                 |None -> raise (Error "init-reboot with no requested IP")
                 |Some ip_address -> ip_address
               in
-              if (List.mem requested_IP !(client_subnet.available_addresses)) then (*address is available, lease to client*)
+              if (is_available requested_IP client_subnet) then (*address is available, lease to client*)
                 let new_reservation = client_identifier,{ip_address=requested_IP;lease_length=lease_length;lease_timestamp=Clock.time()} in
                 add_address new_reservation client_subnet.leases;
                 remove_available_address client_subnet requested_IP;
@@ -253,15 +279,15 @@ module Helper (Console:V1_LWT.CONSOLE)
                 (*Note: RFC 2131 states that the server should trust the client here, despite potential security issues*)
                 let new_reservation = client_identifier,{ip_address=ciaddr;lease_length=lease_length;lease_timestamp=Clock.time()} in
                 (*delete previous record and create a new one. Currently, accept all renewals*)
-                client_subnet.leases:= remove_assoc_rec client_identifier !(client_subnet.leases);
+                remove_lease client_subnet client_identifier;
                 add_address new_reservation client_subnet.leases;
                 let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
                 ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
                 Some (construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options);
               else if (dst = Ipaddr.V4.broadcast) then (*the packet was multicasted, it's a rebinding*)
-                if (List.mem_assoc client_identifier !(client_subnet.leases)) then (*this server is responsible for this . NB this an exact copy of the renewal code*)
+                if (exists_lease client_subnet client_identifier) then (*this server is responsible for this . NB this an exact copy of the renewal code*)
                   let new_reservation = client_identifier,{ip_address=ciaddr;lease_length=lease_length;lease_timestamp=Clock.time()} in
-                  client_subnet.leases:= remove_assoc_rec client_identifier !(client_subnet.leases);
+                  remove_lease client_subnet client_identifier;
                   add_address new_reservation client_subnet.leases;
                   let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
                   ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
@@ -272,19 +298,22 @@ module Helper (Console:V1_LWT.CONSOLE)
             )
       |`Decline -> (*This means that the client has discovered that the offered IP address is in use, the server responds by reserving the address until a client explicitly releases it*)
         (try
-          let ip_address = (List.assoc chaddr !(client_subnet.reserved_addresses)).reserved_ip_address in
+          let ip_address = (find_reservation client_subnet client_identifier).reserved_ip_address in
           let new_reservation = "Unknown", {ip_address;lease_length=Int32.max_int;lease_timestamp=Clock.time()} in (*set lease to the maximum: this means it won't expire*)
           add_address new_reservation client_subnet.leases; (*must notify network admin*)
-          client_subnet.reserved_addresses:=remove_assoc_rec client_identifier !(client_subnet.reserved_addresses);
+          remove_reservation client_subnet client_identifier;
           None;
         with
           |Not_found -> None;)
       |`Release ->
         let entry = client_identifier in
         (*Console.log t.c (sprintf "Packet is a release");*)
-        if (List.mem_assoc entry !(client_subnet.leases)) then (
+        if (exists_lease client_subnet client_identifier) then (
           add_address ciaddr client_subnet.available_addresses;
-          client_subnet.leases:=remove_assoc_rec entry !(client_subnet.leases));
+          remove_lease client_subnet client_identifier;
+          None;
+          )
+        else
           None;
       |`Inform ->
         let options = make_options_without_lease ~client_requests:client_requests ~serverIP:serverIP ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
@@ -312,7 +341,7 @@ let read_config serverIPs filename =
       let parameters = (`Subnet_mask netmask)::(!(subnet_parameters.parameters)) in 
       let scope_bottom = get !(subnet_parameters.scope_bottom) in
       let scope_top = get !(subnet_parameters.scope_top) in
-      let reserved_addresses = ref [] in
+      let reservations = ref [] in
       let leases= ref [] in
       let available_addresses = ref (list_gen (scope_bottom,scope_top)) in
       let max_lease_length =
@@ -335,7 +364,7 @@ let read_config serverIPs filename =
       in
       let serverIP=(List.hd serverIPs) in (*RFC 2131 states that the server SHOULD adjust the IP address it provides according to the location of the client (page 22 paragraph 2).
           It MUST pick one that it believes is reachable by the client. TODO: adjust IP according to client location*)
-      let subnet_record = {subnet;netmask;parameters;max_lease_length;default_lease_length;reserved_addresses;leases;available_addresses;serverIP} in
+      let subnet_record = {subnet;netmask;parameters;max_lease_length;default_lease_length;reservations;leases;available_addresses;serverIP} in
       subnet_record::(extract_subnets t)
   in
   (extract_subnets !(parameters.subnets)),global_parameters
@@ -355,7 +384,7 @@ let read_config serverIPs filename =
     in
     let rec gc = function
       |[]-> (Time.sleep collection_interval)>>=fun()->(garbage_collect t collection_interval)
-      |subnet::tail -> subnet.reserved_addresses:=(gc_reserved !(subnet.reserved_addresses));(subnet.leases:=(gc_in_use !(subnet.leases)));gc tail
+      |subnet::tail -> subnet.reservations:=(gc_reserved !(subnet.reservations));(subnet.leases:=(gc_in_use !(subnet.leases)));gc tail
     in
     gc (t.subnets);;
     
