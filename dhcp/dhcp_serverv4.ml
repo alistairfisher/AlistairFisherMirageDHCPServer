@@ -1,19 +1,3 @@
-(*Initial DHCP- need to hashtables, dynamic allocation only,server IP is always this server, address spaces are contiguous
-no probing before reusing address,no customisation of hardware options, reading params from config file (WIP), account for clock drift*)
-
-(*Features implemented:
-
-* Storage as lists
-* Address leasing and releasing
-* Single range of addresses
-* Necessary options: serverID and lease length
-* Requested lease
-* Decline and release
-* Requested address
-
-*)
-
-
 (* Permission to use, copy, modify, and distribute this software for any
 * purpose with or without fee is hereby granted, provided that the above
 * copyright notice and this permission notice appear in all copies.
@@ -31,39 +15,10 @@ open Lwt.Infix;;
 open Printf;;
 open OS;;
 open Dhcpv4_util;;
+open Dhcp_serverv4_data_structures;;
 
 module Helper (Console:V1_LWT.CONSOLE)
   (Clock:V1.CLOCK) = struct
-
-  type reserved_address = { (*An address that has been offered to a client, but not yet accepted*)
-    reserved_ip_address: Ipaddr.V4.t;
-    xid: Cstruct.uint32;
-    reservation_timestamp: float;
-  }
-    
-  type lease = {
-    lease_length:int32;
-    lease_timestamp:float;
-    ip_address: Ipaddr.V4.t;
-  }
-    
-  (*TODO: use client ID to differentiate explicit ID from hardware address, allowing different hardware types.*)  
-    
-  type clientID = string;; (*According to RFC 2131, this should be the client's hardware address unless an explicit identifier is provided. The RFC states that the ID must be unique
-    within the subnet, but the onus is on the client to ensure this if it chooses to use an explicit identifier: the server shouldn't need to check it for uniqueness. The
-    full identifier is the combination of subnet and identifier, but the subnet is implicit in this implementation*)
-  
-  type subnet = {
-    subnet: Ipaddr.V4.t;
-    netmask: Ipaddr.V4.t;
-    parameters: Dhcpv4_option.t list; (*These will be used as DHCP options*)
-    max_lease_length: int32;
-    default_lease_length: int32;
-    reservations:(clientID*reserved_address) list ref;
-    leases:(clientID*lease) list ref; (*TODO: when client database is done, remove client ID*)
-    available_addresses: Ipaddr.V4.t list ref;
-    serverIP: Ipaddr.V4.t; (*The IP address of the interface that should be used to communicate with hosts on this subnet*)
-  }
   
   exception Error of string;;
   
@@ -306,7 +261,6 @@ module Helper (Console:V1_LWT.CONSOLE)
         with
           |Not_found -> None;)
       |`Release ->
-        let entry = client_identifier in
         (*Console.log t.c (sprintf "Packet is a release");*)
         if (exists_lease client_subnet client_identifier) then (
           add_address ciaddr client_subnet.available_addresses;
@@ -324,50 +278,8 @@ module Helper (Console:V1_LWT.CONSOLE)
       |Error _ -> None
       |Not_found -> None
   
-let read_config serverIPs filename = 
-  let open Dhcp_serverv4_config_parser in
-  let get = function
-    |Some x->x
-    |None -> raise (Error "Undefined parameter")
-  in
-  let parameters = Dhcp_serverv4_config_parser.read_DHCP_config filename in (*read parameters from /etc/dhcpd.conf*)
-  (*extract global parameters*)
-  let global_default_lease  = !(parameters.globals.default_lease_length) in
-  let global_max_lease = !(parameters.globals.max_lease_length) in
-  let global_parameters = !(parameters.globals.parameters) in
-  let rec extract_subnets = function
-    |[]-> []
-    |(subnet,netmask,subnet_parameters)::t ->
-      let parameters = (`Subnet_mask netmask)::(!(subnet_parameters.parameters)) in 
-      let scope_bottom = get !(subnet_parameters.scope_bottom) in
-      let scope_top = get !(subnet_parameters.scope_top) in
-      let reservations = ref [] in
-      let leases= ref [] in
-      let available_addresses = ref (list_gen (scope_bottom,scope_top)) in
-      let max_lease_length =
-        let subnet_lease = !(subnet_parameters.max_lease_length) in
-        match subnet_lease with
-        |Some lease -> lease
-        |None -> (*no specific lease length provided for subnet, try global length*)
-          match global_max_lease with
-          |Some lease -> lease
-          |None -> raise (Error ("No max lease length for subnet "^(Ipaddr.V4.to_string subnet)))
-      in
-      let default_lease_length =
-        let subnet_lease = !(subnet_parameters.default_lease_length) in
-        match subnet_lease with
-        |Some lease -> lease
-        |None ->
-          match global_default_lease with
-          |Some lease -> lease
-          |None -> raise (Error ("No default lease length for subnet "^(Ipaddr.V4.to_string subnet)))
-      in
-      let serverIP=(List.hd serverIPs) in (*RFC 2131 states that the server SHOULD adjust the IP address it provides according to the location of the client (page 22 paragraph 2).
-          It MUST pick one that it believes is reachable by the client. TODO: adjust IP according to client location*)
-      let subnet_record = {subnet;netmask;parameters;max_lease_length;default_lease_length;reservations;leases;available_addresses;serverIP} in
-      subnet_record::(extract_subnets t)
-  in
-  (extract_subnets !(parameters.subnets)),global_parameters
+  let read_config serverIPs filename = 
+    Dhcp_serverv4_config_parser.read_DHCP_config filename serverIPs;;
   
   let rec garbage_collect t collection_interval=
     (*Console.log t.c (sprintf "GC running!");*)

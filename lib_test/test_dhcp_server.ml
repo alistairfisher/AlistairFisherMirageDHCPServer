@@ -71,6 +71,20 @@ let test_case ~xid ~flags ~ciaddr ~yiaddr ~siaddr ~giaddr ~options ~dest ~respon
     assert_equal (Ipaddr.V4.unspecified) (Ipaddr.V4.of_int32(get_dhcp_ciaddr p));
     assert_equal flags (get_dhcp_flags p);
     assert_equal expected_yiaddr (Ipaddr.V4.of_int32(get_dhcp_yiaddr p));
+    (*let of_byte x =
+      Printf.sprintf "%02x" (Char.code x) in
+    let chaddr_to_string x =
+      let chaddr_size = (Bytes.length x) in
+      let dst_buffer = (Bytes.make (chaddr_size * 2) '\000') in
+        for i = 0 to (chaddr_size - 1) do
+          let thischar = of_byte x.[i] in
+            Bytes.set dst_buffer (i*2) (Bytes.get thischar 0);
+            Bytes.set dst_buffer ((i*2)+1) (Bytes.get thischar 1)
+          done;
+          dst_buffer
+    in
+    let chaddr = (chaddr_to_string) (copy_dhcp_chaddr p) in
+    assert_equal client_mac_address chaddr*)
     assert_equal giaddr (Ipaddr.V4.of_int32(get_dhcp_giaddr p)); (*TODO: test client hardware address, test broadcast vs unicast,siaddr*)
     let server_options1 = Cstruct.(copy p sizeof_dhcp (len p - sizeof_dhcp)) in
     let server_options2 = Dhcpv4_option.Packet.of_bytes server_options1 in

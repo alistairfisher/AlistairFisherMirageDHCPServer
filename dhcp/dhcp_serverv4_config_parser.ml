@@ -320,8 +320,56 @@ let lexing input_channel =
   in
   let lines = line_parser input_channel 1 in
   List.concat lines;; (*now have a list of declarations, labelled with their original line number*)
-   
-let read_DHCP_config filename=
+  
+let read_DHCP_config filename serverIPs =
+  let open Dhcp_serverv4_data_structures in
   let input_channel = open_in filename in
   let declarations = lexing input_channel in
-  read_globals declarations
+  let parameters = read_globals declarations in
+  let global_default_lease  = !(parameters.globals.default_lease_length) in
+  let global_max_lease = !(parameters.globals.max_lease_length) in
+  let global_parameters = !(parameters.globals.parameters) in
+  let rec extract_subnets = function
+    |[]-> []
+    |(subnet,netmask,(subnet_parameters:working_parameters))::t ->
+      let parameters = (`Subnet_mask netmask)::(!(subnet_parameters.parameters)) in 
+      let get = function
+        |Some x-> x
+        |None -> raise (Failure "Needed parameter not provided")
+      in
+      let scope_bottom = get !(subnet_parameters.scope_bottom) in
+      let scope_top = get !(subnet_parameters.scope_top) in
+      let reservations = ref [] in
+      let leases= ref [] in
+      let rec list_gen(bottom,top) = (*Generate a pool of available IP addresses*)
+        let a = Ipaddr.V4.to_int32 bottom in
+        let b = Ipaddr.V4.to_int32 top in
+        let open Pervasives in
+        if (a>b) then []
+        else bottom::list_gen(Ipaddr.V4.of_int32(Int32.add a Int32.one),top); (*TODO: this function requires an ugly conversion to int32 and back for incrementing/comparison, needs more elegant solution*)
+      in
+      let available_addresses = ref (list_gen (scope_bottom,scope_top)) in
+      let max_lease_length =
+        let subnet_lease = !(subnet_parameters.max_lease_length) in
+        match subnet_lease with
+        |Some lease -> lease
+        |None -> (*no specific lease length provided for subnet, try global length*)
+          match global_max_lease with
+          |Some lease -> lease
+          |None -> raise (Failure ("No max lease length for subnet "^(Ipaddr.V4.to_string subnet)))
+      in
+      let default_lease_length =
+        let subnet_lease = !(subnet_parameters.default_lease_length) in
+        match subnet_lease with
+        |Some lease -> lease
+        |None ->
+          match global_default_lease with
+          |Some lease -> lease
+          |None -> raise (Failure ("No default lease length for subnet "^(Ipaddr.V4.to_string subnet)))
+      in
+      let serverIP=(List.hd serverIPs) in (*RFC 2131 states that the server SHOULD adjust the IP address it provides according to the location of the client (page 22 paragraph 2).
+          It MUST pick one that it believes is reachable by the client. TODO: adjust IP according to client location*)
+      let subnet_record = {subnet;netmask;parameters;max_lease_length;default_lease_length;reservations;leases;available_addresses;serverIP} in
+      subnet_record::(extract_subnets t)
+  in
+  (extract_subnets !(parameters.subnets)),global_parameters
