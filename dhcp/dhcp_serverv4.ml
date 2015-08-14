@@ -23,12 +23,6 @@ module Helper (Console:V1_LWT.CONSOLE)
   exception Error of string;;
   
   (*Various helper functions*)
-    
-  let rec list_gen(bottom,top) = (*Generate a pool of available IP addresses*)
-    let a = Ipaddr.V4.to_int32 bottom in
-    let b = Ipaddr.V4.to_int32 top in
-    if a>b then []
-    else bottom::list_gen(Ipaddr.V4.of_int32(Int32.add a Int32.one),top);; (*TODO: this function requires an ugly conversion to int32 and back for incrementing/comparison, needs more elegant solution*)
  
   let rec find_subnet ip_address subnets = (*Match an IP address to a subnet*)
     let routing_prefix netmask address= (*Find the routing prefix of address if it lived in the subnet with this netmask*)
