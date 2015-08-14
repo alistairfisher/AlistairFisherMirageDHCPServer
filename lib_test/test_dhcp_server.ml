@@ -54,8 +54,9 @@ let dhcp_packet_builder xid flags ciaddr yiaddr siaddr giaddr options=
 let options op = {op=`Discover;opts=[]} (*Test options fully separately*)
 
 let test_case ~xid ~flags ~ciaddr ~yiaddr ~siaddr ~giaddr ~options ~dest ~response_expected ~options_test ~expected_yiaddr =
-  let packet = dhcp_packet_builder xid flags ciaddr yiaddr siaddr giaddr options in
-  let result = parse_packet t ~src:client_ip_address ~dst:dest packet in (*the server's response to the packet*)
+  let raw_packet = dhcp_packet_builder xid flags ciaddr yiaddr siaddr giaddr options in
+  let packet = dhcp_packet_of_cstruct raw_packet in
+  let result = parse_packet t ~src:client_ip_address ~dst:dest ~packet:packet in (*the server's response to the packet*)
   match result,response_expected with
   |None,false -> () (*No packet expected, none received: job done*)
   |None,true -> assert_failure "Response expected, none received"
@@ -159,8 +160,9 @@ let response_test_case = (*this is for responding to offers*)
 let request_correct () =
   let unitise x = () in
   let open Int32 in
-  let packet = dhcp_packet_builder (of_int 41) 0 unspecified unspecified unspecified gateway_ip_address2 discover_options in (*send a discover to the server for use in this test*)
-  unitise (parse_packet t ~src:client_ip_address ~dst:server_ip_address packet);
+  let raw_packet = dhcp_packet_builder (of_int 41) 0 unspecified unspecified unspecified gateway_ip_address2 discover_options in (*send a discover to the server for use in this test*)
+  let packet = dhcp_packet_of_cstruct raw_packet in
+  unitise (parse_packet t ~src:client_ip_address ~dst:server_ip_address ~packet:packet);
   response_test_case ~xid:(of_int 41) ~flags:0 ~giaddr:gateway_ip_address2 ~response_expected:true ~expected_yiaddr:(Ipaddr.V4.of_string_exn "192.1.3.2");
   response_test_case ~xid:(of_int 41) ~flags:0 ~giaddr:gateway_ip_address2 ~response_expected:false ~expected_yiaddr:(unspecified);
   (*only the last one should receive a response, since when each discover will override the last one*)
@@ -169,10 +171,12 @@ let request_correct () =
 let request_incorrect () =
   let unitise x = () in
   let open Int32 in
-  let packet1 = dhcp_packet_builder (of_int 51) 0 unspecified unspecified unspecified gateway_ip_address2 discover_options in
-  unitise (parse_packet t ~src:client_ip_address ~dst:server_ip_address packet1);
-  let packet2 = dhcp_packet_builder (of_int 52) 0 unspecified unspecified unspecified gateway_ip_address2 discover_options in
-  unitise (parse_packet t ~src:client_ip_address ~dst:server_ip_address packet2);
+  let raw_packet1 = dhcp_packet_builder (of_int 51) 0 unspecified unspecified unspecified gateway_ip_address2 discover_options in
+  let packet1 = dhcp_packet_of_cstruct raw_packet1 in
+  unitise (parse_packet t ~src:client_ip_address ~dst:server_ip_address ~packet:packet1);
+  let raw_packet2 = dhcp_packet_builder (of_int 52) 0 unspecified unspecified unspecified gateway_ip_address2 discover_options in
+  let packet2 = dhcp_packet_of_cstruct raw_packet2 in
+  unitise (parse_packet t ~src:client_ip_address ~dst:server_ip_address ~packet:packet2);
   response_test_case ~xid:(of_int 51) ~flags:0 ~giaddr:gateway_ip_address2 ~response_expected:false ~expected_yiaddr:unspecified;
   Lwt.return_unit;;
 

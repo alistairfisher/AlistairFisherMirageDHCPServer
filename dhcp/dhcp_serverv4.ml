@@ -102,34 +102,21 @@ module Helper (Console:V1_LWT.CONSOLE)
     ~dest:dest_ip_address
   
   (*unwrap DHCP packet, case split depending on the contents*)
-  let parse_packet t ~src ~dst buf = (*lots of duplication with client, need to combine into one unit*)
-  try
-    let ciaddr = Ipaddr.V4.of_int32 (get_dhcp_ciaddr buf) in
-    let yiaddr = Ipaddr.V4.of_int32 (get_dhcp_yiaddr buf) in
-    let giaddr = Ipaddr.V4.of_int32 (get_dhcp_giaddr buf) in
-    let xid = get_dhcp_xid buf in
-    let of_byte x =
-      Printf.sprintf "%02x" (Char.code x) in
-    let chaddr_to_string x =
-      let chaddr_size = (Bytes.length x) in
-      let dst_buffer = (Bytes.make (chaddr_size * 2) '\000') in
-        for i = 0 to (chaddr_size - 1) do
-          let thischar = of_byte x.[i] in
-            Bytes.set dst_buffer (i*2) (Bytes.get thischar 0);
-            Bytes.set dst_buffer ((i*2)+1) (Bytes.get thischar 1)
-          done;
-          dst_buffer
-    in
-    let chaddr = (chaddr_to_string) (copy_dhcp_chaddr buf) in
-    let flags = get_dhcp_flags buf in
-    let options = Cstruct.(copy buf sizeof_dhcp (len buf - sizeof_dhcp)) in
-    let packet = Dhcpv4_option.Packet.of_bytes options in
+  let parse_packet t ~src ~dst ~packet = (*lots of duplication with client, need to combine into one unit*)
+    let ciaddr = packet.ciaddr in
+    let yiaddr = packet.yiaddr in
+    let giaddr = packet.giaddr in
+    let xid = packet.xid in
+    let chaddr = packet.chaddr in
+    let flags = packet.flags in
+    let packet = packet.options in
     (*Lwt_list.iter_s (Console.log_s t.c) TODO: put this back
       [ "DHCP response:";
         sprintf "input ciaddr %s yiaddr %s" (Ipaddr.V4.to_string ciaddr) (Ipaddr.V4.to_string yiaddr);
         sprintf "siaddr %s giaddr %s" (Ipaddr.V4.to_string siaddr) (Ipaddr.V4.to_string giaddr);
         sprintf "chaddr %s sname %s file %s" (chaddr) (copy_dhcp_sname buf) (copy_dhcp_file buf)]
     >>= fun () ->*)
+    try
     let open Dhcpv4_option.Packet in
     let client_identifier = match find packet (function `Client_id id -> Some id |_ -> None) with (*If a client ID is explcitly provided, use it, else default to using client hardware address for id*)
       |None -> chaddr
@@ -285,7 +272,8 @@ module Make (Console:V1_LWT.CONSOLE)
   open H;;
   
   let input t stack ~src ~dst ~src_port:_ buf =
-    match parse_packet t ~src:src ~dst:dst buf with
+    let dhcp_packet = dhcp_packet_of_cstruct buf in
+    match parse_packet t ~src:src ~dst:dst ~packet:dhcp_packet with
     |None -> Lwt.return_unit;
     |Some (p,d) ->
       (*Console.log_s t.c (sprintf "Sending DHCP broadcast")
