@@ -106,9 +106,9 @@ module Helper (Console:V1_LWT.CONSOLE)
     let ciaddr = packet.ciaddr in
     let yiaddr = packet.yiaddr in
     let giaddr = packet.giaddr in
-    let xid = packet.xid in
+    let xid    = packet.xid in
     let chaddr = packet.chaddr in
-    let flags = packet.flags in
+    let flags  = packet.flags in
     let packet = packet.options in
     (*Lwt_list.iter_s (Console.log_s t.c) TODO: put this back
       [ "DHCP response:";
@@ -117,29 +117,29 @@ module Helper (Console:V1_LWT.CONSOLE)
         sprintf "chaddr %s sname %s file %s" (chaddr) (copy_dhcp_sname buf) (copy_dhcp_file buf)]
     >>= fun () ->*)
     try
-    let open Dhcpv4_option.Packet in
-    let client_identifier = match find packet (function `Client_id id -> Some id |_ -> None) with (*If a client ID is explcitly provided, use it, else default to using client hardware address for id*)
-      |None -> chaddr
-      |Some id-> (*Console.log t.c (sprintf "Client identifer set to %s" id);*)id
-    in
-    let client_subnet =
-      if (giaddr = Ipaddr.V4.unspecified) then (*either unicasted or on same subnet*)
-        (if dst = (Ipaddr.V4.broadcast) then t.server_subnet (*broadcasted -> on same subnet*)
-        else find_subnet src (t.subnets)) (*else unicasted, can use source address to find subnets*)
-      else find_subnet giaddr (t.subnets) (*the client is not on the same subnet, the packet has travelled via a BOOTP relay (with address giaddr). Use the subnet that contains the relay*)     
-    in
-    let lease_length = match find packet (function `Lease_time requested_lease -> Some requested_lease |_ -> None) with
-      |None -> client_subnet.default_lease_length
-      |Some requested_lease-> Int32.of_int(min (Int32.to_int requested_lease) (Int32.to_int (client_subnet.max_lease_length)))
-    in
-    let client_requests = match find packet (function `Parameter_request params -> Some params |_ -> None) with
-      |None -> []
-      |Some params -> params
-    in
-    let serverIP = client_subnet.serverIP in
-    let subnet_parameters = client_subnet.parameters in
-    let open Dhcp_serverv4_options in
-    match packet.op with
+      let open Dhcpv4_option.Packet in
+      let client_identifier = match find packet (function `Client_id id -> Some id |_ -> None) with (*If a client ID is explcitly provided, use it, else default to using client hardware address for id*)
+        |None -> chaddr
+        |Some id-> (*Console.log t.c (sprintf "Client identifer set to %s" id);*)id
+      in
+      let client_subnet =
+        if (giaddr = Ipaddr.V4.unspecified) then (*either unicasted or on same subnet*)
+          if dst = (Ipaddr.V4.broadcast) then t.server_subnet (*broadcasted -> on same subnet*)
+          else find_subnet src (t.subnets) (*else unicasted, can use source address to find subnets*)
+        else find_subnet giaddr (t.subnets) (*the client is not on the same subnet, the packet has travelled via a BOOTP relay (with address giaddr). Use the subnet that contains the relay*)     
+      in
+      let lease_length = match find packet (function `Lease_time requested_lease -> Some requested_lease |_ -> None) with
+        |None -> client_subnet.default_lease_length
+        |Some requested_lease-> Int32.of_int(min (Int32.to_int requested_lease) (Int32.to_int (client_subnet.max_lease_length)))
+      in
+      let client_requests = match find packet (function `Parameter_request params -> Some params |_ -> None) with
+        |None -> []
+        |Some params -> params
+      in
+      let serverIP = client_subnet.serverIP in
+      let subnet_parameters = client_subnet.parameters in
+      let open Dhcp_serverv4_options in
+      match packet.op with
       |`Discover -> (* TODO: should probe address via ICMP here, and ensure that it's actually free, and try a new one if not*)
         let reserved_ip_address = match find packet (function `Requested_ip requested_address -> Some requested_address | _ -> None) with (*check whether the client has requested a specific address, and if possible reserve it for them*)
           |None-> first_address client_subnet
