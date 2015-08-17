@@ -329,6 +329,7 @@ let read_DHCP_config filename serverIPs =
   let global_default_lease  = !(parameters.globals.default_lease_length) in
   let global_max_lease = !(parameters.globals.max_lease_length) in
   let global_parameters = !(parameters.globals.parameters) in
+  let table = Dhcpv4_irmin.Table.empty in
   let rec extract_subnets = function
     |[]-> []
     |(subnet,netmask,(subnet_parameters:working_parameters))::t ->
@@ -339,8 +340,6 @@ let read_DHCP_config filename serverIPs =
       in
       let scope_bottom = get !(subnet_parameters.scope_bottom) in
       let scope_top = get !(subnet_parameters.scope_top) in
-      let reservations = ref [] in
-      let leases= ref [] in
       let rec list_gen(bottom,top) = (*Generate a pool of available IP addresses*)
         let a = Ipaddr.V4.to_int32 bottom in
         let b = Ipaddr.V4.to_int32 top in
@@ -369,8 +368,7 @@ let read_DHCP_config filename serverIPs =
       in
       let serverIP=(List.hd serverIPs) in (*RFC 2131 states that the server SHOULD adjust the IP address it provides according to the location of the client (page 22 paragraph 2).
           It MUST pick one that it believes is reachable by the client. TODO: adjust IP according to client location*)
-      let table = Dhcpv4_irmin.Table.empty in
-      let subnet_record = {subnet;netmask;parameters;max_lease_length;default_lease_length;reservations;leases;available_addresses;serverIP;table} in
+      let subnet_record = {subnet;netmask;parameters;max_lease_length;default_lease_length;serverIP} in
       subnet_record::(extract_subnets t)
   in
   (extract_subnets !(parameters.subnets)),global_parameters

@@ -49,12 +49,15 @@ module Helper (Console:V1_LWT.CONSOLE)
       else (a,b) :: (remove_assoc_rec key t);;
   
   let change_address_state address state table =
-    Dhcpv4_irmin.Table.Ops.add address state table
+    Dhcpv4_irmin.Table.add address state table;;
+  
+  let find_address address table = 
+    Dhcpv4_irmin.Table.find address table;;     
   
   let check_xid address table xid client_identifier = (*Check whether a request uses the correct xid for the reservation*)
     try
-      let address_state = Dhcpv4_irmin.Table.Ops.find address table in
-      address_state = (Reservation xid client_identifier)
+      let address_state = Dhcpv4_irmin.Table.find address table in
+      address_state = (Dhcpv4_irmin.Lease_state.Reserved (xid,client_identifier))
     with
     | Not_found -> false;;
   
@@ -65,7 +68,7 @@ module Helper (Console:V1_LWT.CONSOLE)
 
   let is_available address table = 
       try
-        let address_state = Dhcpv4_irmin.Table.Ops.find address table in
+        let address_state = Dhcpv4_irmin.Table.find address table in
         address_state = Available
       with
       | Not_found -> false
@@ -100,7 +103,7 @@ module Helper (Console:V1_LWT.CONSOLE)
     ~dest:dest_ip_address
   
   (*unwrap DHCP packet, case split depending on the contents*)
-  let parse_packet t ~src ~dst ~packet = (*lots of duplication with client, need to combine into one unit*)
+  let parse_packet t ~src ~dst ~packet table = (*lots of duplication with client, need to combine into one unit*)
     let ciaddr = packet.ciaddr in
     let yiaddr = packet.yiaddr in
     let giaddr = packet.giaddr in
@@ -145,7 +148,7 @@ module Helper (Console:V1_LWT.CONSOLE)
             if (is_available requested_address client_subnet) then requested_address
             else first_address client_subnet
         in
-        let new_table = change_address_state reserved_ip_address (Reserved xid client_identifier) in
+        let new_table = change_address_state reserved_ip_address (Reserved (xid,client_identifier)) in
         (*TODO: do something with this new table*)
         let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
         ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Offer in
@@ -170,6 +173,7 @@ module Helper (Console:V1_LWT.CONSOLE)
               let requested_IP = match find packet (function `Requested_ip ip -> Some ip |_ -> None) with
                 |None -> raise (Error "init-reboot with no requested IP")
                 |Some ip_address -> ip_address
+              in
               if (is_available requested_IP table) then (*address is available, lease to client*)
                 let table = change_address_state requested_IP table (Active client_identifier) in
                 let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
@@ -179,11 +183,10 @@ module Helper (Console:V1_LWT.CONSOLE)
                 let options = make_options_without_lease ~serverIP:serverIP ~message_type:`Nak ~client_requests: client_requests
                 ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters in
                 Some (server_construct_packet t ~xid:xid ~nak:true ~ciaddr:(Ipaddr.V4.unspecified) ~yiaddr:(Ipaddr.V4.unspecified) ~siaddr:(Ipaddr.V4.unspecified) ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options);
-            else (*client in renew or rebind.*)
-              if (List.mem dst t.serverIPs) then (*the packet was unicasted here, it's a renewal*)
+            else (*client in renew or rebind. TODO*)
+              if (List.mem dst t.serverIPs) then (*the packet was unicasted here, it's a renewal. Currently accept all renewals*)
                 (*Note: RFC 2131 states that the server should trust the client here, despite potential security issues*)
-                change_address_state 
-                (*delete previous record and create a new one. Currently, accept all renewals*)
+                let table = change_address_state ciaddr table in
                 remove_lease client_subnet client_identifier;
                 add_address new_reservation client_subnet.leases;
                 let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
@@ -211,14 +214,14 @@ module Helper (Console:V1_LWT.CONSOLE)
         with
           |Not_found -> None;)
       |`Release ->
-        (*Console.log t.c (sprintf "Packet is a release");*)
-        if (exists_lease client_subnet client_identifier) then (
-          add_address ciaddr client_subnet.available_addresses;
-          remove_lease client_subnet client_identifier;
-          None;
-          )
-        else
-          None;
+        try
+          let address_info = find_address ciaddr table in
+          if (address_info = (Active client_identifier)) then
+            let table = change_address_state client_identifier Available in
+            None
+          else None 
+        with
+        |Not_found -> raise (Failure "Release with no ciaddr")          
       |`Inform ->
         let options = make_options_without_lease ~client_requests:client_requests ~serverIP:serverIP ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
         ~message_type:`Ack in
@@ -260,6 +263,7 @@ module Make (Console:V1_LWT.CONSOLE)
   open H;;
   
   let input t stack ~src ~dst ~src_port:_ buf =
+    let table = Dhcpv4_irmin.Table.empty in
     let dhcp_packet = dhcp_packet_of_cstruct buf in
     match parse_packet t ~src:src ~dst:dst ~packet:dhcp_packet with
     |None -> Lwt.return_unit;

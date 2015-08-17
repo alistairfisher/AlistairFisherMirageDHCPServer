@@ -3,23 +3,24 @@ module Lease_state = struct
   
   let of_string s = 
     try
-      let tokens = String.split s ' ' in
+      let regexp = Str.regexp " " in
+      let tokens = Str.split regexp s in
       let lease_state = List.hd tokens in
       match lease_state with
       |"Available"-> Some Available
       |"Reserved" ->
-        let xid = Int32.of_string (List.nth 1 tokens) in
-        let client_id = (List.nth 2 tokens) in
-        Some (Reserved xid client_id)
+        let xid = Int32.of_string (List.nth tokens 1) in
+        let client_id = (List.nth tokens 2) in
+        Some (Reserved (xid,client_id))
       |"Active" ->
-        let client_id = (List.nth 2 tokens) in
-        Some (Active client_id);;
+        let client_id = (List.nth tokens 1) in
+        Some (Active client_id)
     with
-    | _ -> None
+    | _ -> None;;
   
   let to_string = function
     |Available -> "Available"
-    |Reserved xid client_identifier-> Prinf.sprintf "Reserved %s %s" (Int32.to_string xid) client_identifier
+    |Reserved (xid,client_identifier)-> Printf.sprintf "Reserved %s %s" (Int32.to_string xid) client_identifier
     |Active client_identifier-> Printf.sprintf "Active %s" client_identifier;;
     
   let compare x y = 0;;
