@@ -22,8 +22,6 @@ type subnet = {
   parameters: Dhcpv4_option.t list;
   max_lease_length: int32;
   default_lease_length: int32;
-  reservations:(clientID*reserved_address) list ref;
-  leases:(clientID*lease) list ref;
-  available_addresses: Ipaddr.V4.t list ref;
   serverIP: Ipaddr.V4.t; (*The IP address of the interface that should be used to communicate with hosts on this subnet*)
+  table: Dhcpv4_irmin.Table.t;
 }
