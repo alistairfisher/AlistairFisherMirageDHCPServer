@@ -1,5 +1,5 @@
 module Lease_state = struct
-  type t = | Available | Reserved of (int32*Dhcp_serverv4_data_structures.client_identifier) | Active of Dhcp_serverv4_data_structures.client_identifier;; (*use the int32 to hold a reservations transaction id*)
+  type t = | Reserved of (int32*string) | Active of string (*use the int32 to hold a reservations transaction id*) (*TODO: use Dhcpv4_datastructures.client_identifier instead of string*)
   
   let of_string s = 
     try
@@ -7,7 +7,6 @@ module Lease_state = struct
       let tokens = Str.split regexp s in
       let lease_state = List.hd tokens in
       match lease_state with
-      |"Available"-> Some Available
       |"Reserved" ->
         let xid = Int32.of_string (List.nth tokens 1) in
         let client_id = (List.nth tokens 2) in
@@ -19,7 +18,6 @@ module Lease_state = struct
     | _ -> None;;
   
   let to_string = function
-    |Available -> "Available"
     |Reserved (xid,client_identifier)-> Printf.sprintf "Reserved %s %s" (Int32.to_string xid) client_identifier
     |Active client_identifier-> Printf.sprintf "Active %s" client_identifier;;
     
