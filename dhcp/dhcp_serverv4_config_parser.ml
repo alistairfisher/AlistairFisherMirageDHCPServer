@@ -329,6 +329,7 @@ let read_DHCP_config filename serverIPs =
   let global_default_lease  = !(parameters.globals.default_lease_length) in
   let global_max_lease = !(parameters.globals.max_lease_length) in
   let global_parameters = !(parameters.globals.parameters) in
+  let static_hosts = [] in
   let rec extract_subnets = function
     |[]-> []
     |(subnet,netmask,(subnet_parameters:working_parameters))::t ->
@@ -360,7 +361,7 @@ let read_DHCP_config filename serverIPs =
       in
       let serverIP=(List.hd serverIPs) in (*RFC 2131 states that the server SHOULD adjust the IP address it provides according to the location of the client (page 22 paragraph 2).
           It MUST pick one that it believes is reachable by the client. TODO: adjust IP according to client location*)
-      let subnet_record = {subnet;netmask;parameters;scope_bottom;scope_top;max_lease_length;default_lease_length;table;serverIP} in
+      let subnet_record = {subnet;netmask;parameters;scope_bottom;scope_top;max_lease_length;default_lease_length;table;serverIP;static_hosts} in
       subnet_record::(extract_subnets t)
   in
   (extract_subnets !(parameters.subnets)),global_parameters
