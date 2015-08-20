@@ -206,7 +206,7 @@ let incorrect_init_reboot () =
   (*no requested address, should fail*)
   Lwt.return_unit;;
 
-let renewal_test () = (*xid not provided*)
+let renewal_test () = 
   let open Int32 in
   other_requests_test_case ~xid:(of_int 81) ~ciaddr:requested_ip_address3 ~giaddr:gateway_ip_address2 ~options:(request_options_without_serverID) ~response_expected:true ~expected_yiaddr:requested_ip_address3 ~dest:server_ip_address ~options_test:ack_options_test; (*this should work*)
   other_requests_test_case ~xid:(of_int 82) ~ciaddr:requested_ip_address4 ~giaddr:gateway_ip_address1 ~options:(request_options_without_serverID) ~response_expected:true ~expected_yiaddr:requested_ip_address4 ~dest:server_ip_address ~options_test:ack_options_test;

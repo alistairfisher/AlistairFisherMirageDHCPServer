@@ -42,10 +42,12 @@ module Helper (Console:V1_LWT.CONSOLE)
   (*Irmin helpers*)
   
   let change_address_state address state subnet lease_time =
+    let lease_time = Int32.to_int lease_time in
     let entry = Dhcpv4_irmin.Entry.make_confirmed ((int_of_float(Clock.time())) + lease_time) state in
     subnet.table := Dhcpv4_irmin.Table.add address entry !(subnet.table);;
   
   let add_address address state subnet lease_time =
+    let lease_time = Int32.to_int lease_time in
     let entry = Dhcpv4_irmin.Entry.make_confirmed ((int_of_float(Clock.time())) + lease_time) state in
     subnet.table := Dhcpv4_irmin.Table.add address entry !(subnet.table);;
   
@@ -145,8 +147,7 @@ module Helper (Console:V1_LWT.CONSOLE)
             if (is_available requested_address client_subnet) then requested_address
             else first_address client_subnet
         in
-        let new_table = add_address reserved_ip_address (Dhcpv4_irmin.Lease_state.Reserved (xid,client_identifier)) (client_subnet) in
-        (*TODO: do something with this new table*)
+        add_address reserved_ip_address (Dhcpv4_irmin.Lease_state.Reserved (xid,client_identifier)) client_subnet lease_length;
         let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
         ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Offer in
         (*send DHCP Offer*)
@@ -159,7 +160,7 @@ module Helper (Console:V1_LWT.CONSOLE)
               |Some ip_address -> ip_address
             in
             if ((List.mem server_identifier t.serverIPs) && (check_reservation requested_ip_address client_subnet xid client_identifier)) then (
-              let table = change_address_state requested_ip_address (Active client_identifier) client_subnet in
+              change_address_state requested_ip_address (Active client_identifier) client_subnet lease_length;
               let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
               ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
               Some (server_construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:requested_ip_address ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options);
@@ -172,7 +173,8 @@ module Helper (Console:V1_LWT.CONSOLE)
                 |Some ip_address -> ip_address
               in
               if (is_available requested_IP client_subnet) then (*address is available, lease to client*)
-                let table = change_address_state requested_IP (Dhcpv4_irmin.Lease_state.Active client_identifier) client_subnet in
+                let f = change_address_state requested_IP (Dhcpv4_irmin.Lease_state.Active client_identifier) client_subnet lease_length in
+                f;
                 let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
                 ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
                 Some (server_construct_packet t ~xid:xid ~ciaddr:(Ipaddr.V4.unspecified) ~yiaddr:requested_IP ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options);
@@ -180,17 +182,19 @@ module Helper (Console:V1_LWT.CONSOLE)
                 let options = make_options_without_lease ~serverIP:serverIP ~message_type:`Nak ~client_requests: client_requests
                 ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters in
                 Some (server_construct_packet t ~xid:xid ~nak:true ~ciaddr:(Ipaddr.V4.unspecified) ~yiaddr:(Ipaddr.V4.unspecified) ~siaddr:(Ipaddr.V4.unspecified) ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options);
-            else (*client in renew or rebind. TODO*)
+            else (*client in renew or rebind.*)
               if (dst = serverIP) then (*the packet was unicasted here, it's a renewal. Currently accept all renewals*)
                 (*Note: RFC 2131 states that the server should trust the client here, despite potential security issues*)
-                let table = change_address_state ciaddr (Dhcpv4_irmin.Lease_state.Active client_identifier) client_subnet in
+                let table = change_address_state ciaddr (Dhcpv4_irmin.Lease_state.Active client_identifier) client_subnet lease_length in
+                table;
                 let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
                 ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
                 Some (server_construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options);
               else if (dst = Ipaddr.V4.broadcast) then (*the packet was multicasted, it's a rebinding*)
                 let address_info = find_address ciaddr client_subnet in
                 if (address_info = Dhcpv4_irmin.Lease_state.Active client_identifier) then (*this server is responsible for this.*)
-                  let table = change_address_state ciaddr (Dhcpv4_irmin.Lease_state.Active client_identifier) client_subnet in
+                  let table = change_address_state ciaddr (Dhcpv4_irmin.Lease_state.Active client_identifier) client_subnet lease_length in
+                  table;
                   let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
                   ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
                   Some (server_construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options);
@@ -202,11 +206,11 @@ module Helper (Console:V1_LWT.CONSOLE)
         (match find packet (function `Requested_ip ip -> Some ip |_ -> None) with
           |None -> None
           |Some ip_address ->
-            let table = change_address_state ip_address (Active "client_unknown") in
+            change_address_state ip_address (Active "client_unknown") client_subnet lease_length;
             None
         )
       |`Release ->
-        let table = remove_address ciaddr client_subnet in
+        remove_address ciaddr client_subnet;
         None          
       |`Inform ->
         let options = make_options_without_lease ~client_requests:client_requests ~serverIP:serverIP ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
