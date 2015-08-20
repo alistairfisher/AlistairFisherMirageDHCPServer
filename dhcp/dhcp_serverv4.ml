@@ -79,7 +79,7 @@ module Helper (Console:V1_LWT.CONSOLE)
     check_address scope_bottom;;
 
   let is_available address subnet = 
-    not (Dhcpv4_irmin.Table.mem address !(subnet.table))
+    not (Dhcpv4_irmin.Table.mem address !(subnet.table)) && (subnet.scope_bottom <= address) && (subnet.scope_top>= address);;
   
   type t = {
     (*c: Console.t;*)
