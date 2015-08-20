@@ -63,6 +63,7 @@ let test_case ~xid ~flags ~ciaddr ~yiaddr ~siaddr ~giaddr ~options ~dest ~respon
   |Some _,false -> assert_failure "No response expected, response received"
   |Some (p,dst),true ->
     let open Dhcp_clientv4 in
+    (*assert_failure (Printf.sprintf "yiaddr = %s" (Ipaddr.V4.to_string (Ipaddr.V4.of_int32(get_dhcp_yiaddr p))));*)
     assert_equal 2 (get_dhcp_op p); (*Server messages always have op type 2*)
     assert_equal 1 (get_dhcp_htype p);
     assert_equal 6 (get_dhcp_hlen p);
@@ -135,7 +136,7 @@ let nonsense_discovers() =
 (*TEST DHCPREQUEST RESPONSES*)    
 
 let request_options_without_serverID = {op=`Request;opts=[]};; (*Used in rebinding and renewing*)
-let request_options_with_serverID = {op=`Request;opts=[`Server_identifier server_ip_address]};; (*Used in all other (valid) requests*)
+let request_options_with_serverID requested_ip = {op=`Request;opts=[`Server_identifier server_ip_address;`Requested_ip requested_ip]};; (*Used in all other (valid) requests*)
 let request_options_with_requested_address address = {op=`Request;opts=[`Requested_ip address]};; (*Used in init_reboot*)
 
 (*The previous test will have lodged 4 requests with the server, these tests use those 4 requests*)
@@ -154,8 +155,8 @@ let ack_options_test options =
 let nak_options_test options =
   assert_equal options.op `Nak;;
 
-let response_test_case = (*this is for responding to offers*)
-  test_case ~ciaddr:unspecified ~yiaddr:unspecified ~siaddr:unspecified ~options:request_options_with_serverID ~dest:Ipaddr.V4.broadcast ~options_test:ack_options_test;;
+let response_test_case requested_ip = (*this is for responding to offers*)
+  test_case ~ciaddr:unspecified ~yiaddr:unspecified ~siaddr:unspecified ~options:(request_options_with_serverID requested_ip) ~dest:Ipaddr.V4.broadcast ~options_test:ack_options_test;;
 
 let request_correct () =
   let unitise x = () in
@@ -163,8 +164,9 @@ let request_correct () =
   let raw_packet = dhcp_packet_builder (of_int 41) 0 unspecified unspecified unspecified gateway_ip_address2 discover_options in (*send a discover to the server for use in this test*)
   let packet = dhcp_packet_of_cstruct raw_packet in
   unitise (parse_packet t ~src:client_ip_address ~dst:server_ip_address ~packet:packet);
-  response_test_case ~xid:(of_int 41) ~flags:0 ~giaddr:gateway_ip_address2 ~response_expected:true ~expected_yiaddr:(Ipaddr.V4.of_string_exn "192.1.3.2");
-  response_test_case ~xid:(of_int 41) ~flags:0 ~giaddr:gateway_ip_address2 ~response_expected:false ~expected_yiaddr:(unspecified);
+  (response_test_case (Ipaddr.V4.of_string_exn "192.1.3.2")) ~xid:(of_int 41) ~flags:0 ~giaddr:gateway_ip_address2 ~response_expected:true
+    ~expected_yiaddr:(Ipaddr.V4.of_string_exn "192.1.3.2");
+  (response_test_case unspecified) ~xid:(of_int 41) ~flags:0 ~giaddr:gateway_ip_address2 ~response_expected:false ~expected_yiaddr:(unspecified);
   (*only the last one should receive a response, since when each discover will override the last one*)
   Lwt.return_unit;;
 
@@ -177,7 +179,7 @@ let request_incorrect () =
   let raw_packet2 = dhcp_packet_builder (of_int 52) 0 unspecified unspecified unspecified gateway_ip_address2 discover_options in
   let packet2 = dhcp_packet_of_cstruct raw_packet2 in
   unitise (parse_packet t ~src:client_ip_address ~dst:server_ip_address ~packet:packet2);
-  response_test_case ~xid:(of_int 51) ~flags:0 ~giaddr:gateway_ip_address2 ~response_expected:false ~expected_yiaddr:unspecified;
+  (response_test_case unspecified) ~xid:(of_int 51) ~flags:0 ~giaddr:gateway_ip_address2 ~response_expected:false ~expected_yiaddr:unspecified;
   Lwt.return_unit;;
 
 let requested_ip_address1 = Ipaddr.V4.of_string_exn "192.1.1.10";; (*this should be available*)
@@ -205,7 +207,7 @@ let incorrect_init_reboot () =
   (*no requested address, should fail*)
   Lwt.return_unit;;
 
-let renewal_test () = (*xid not provided*)
+let renewal_test () = 
   let open Int32 in
   other_requests_test_case ~xid:(of_int 81) ~ciaddr:requested_ip_address3 ~giaddr:gateway_ip_address2 ~options:(request_options_without_serverID) ~response_expected:true ~expected_yiaddr:requested_ip_address3 ~dest:server_ip_address ~options_test:ack_options_test; (*this should work*)
   other_requests_test_case ~xid:(of_int 82) ~ciaddr:requested_ip_address4 ~giaddr:gateway_ip_address1 ~options:(request_options_without_serverID) ~response_expected:true ~expected_yiaddr:requested_ip_address4 ~dest:server_ip_address ~options_test:ack_options_test;
