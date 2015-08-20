@@ -43,18 +43,18 @@ module Helper (Console:V1_LWT.CONSOLE)
   
   let change_address_state address state subnet lease_time =
     let entry = Dhcpv4_irmin.Entry.make_confirmed ((int_of_float(Clock.time())) + lease_time) state in
-    Dhcpv4_irmin.Table.add address entry !(subnet.table);;
+    subnet.table := Dhcpv4_irmin.Table.add address entry !(subnet.table);;
   
   let add_address address state subnet lease_time =
     let entry = Dhcpv4_irmin.Entry.make_confirmed ((int_of_float(Clock.time())) + lease_time) state in
-    Dhcpv4_irmin.Table.add address entry !(subnet.table);;
+    subnet.table := Dhcpv4_irmin.Table.add address entry !(subnet.table);;
   
   let find_address address subnet =
     let Dhcpv4_irmin.Entry.Confirmed(time,lease_state) = Dhcpv4_irmin.Table.find address !(subnet.table) in
     lease_state;; 
   
   let remove_address address subnet =
-    Dhcpv4_irmin.Table.remove address !(subnet.table);;
+    subnet.table := Dhcpv4_irmin.Table.remove address !(subnet.table);;
   
   let check_reservation address subnet xid client_identifier = (*Check whether a request uses the correct xid and client id for the reservation*)
     try
@@ -64,7 +64,7 @@ module Helper (Console:V1_LWT.CONSOLE)
     | Not_found -> false;;
   
   let first_address subnet =  (*first available address*)
-    let scope_bottom = Ipaddr.V4.to_int32 subnet.scope_top in
+    let scope_bottom = Ipaddr.V4.to_int32 subnet.scope_bottom in
     let scope_top = Ipaddr.V4.to_int32 subnet.scope_top in
     let rec check_address ip_address =
       if ip_address>scope_top then raise (Error "No available IP addresses in subnet") (*TODO: add subnet for diagnostic*)
