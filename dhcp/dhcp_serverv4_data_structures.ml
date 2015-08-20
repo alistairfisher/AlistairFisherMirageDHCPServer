@@ -24,6 +24,6 @@ type subnet = {
   scope_top: Ipaddr.V4.t;
   max_lease_length: int32;
   default_lease_length: int32;
-  table: Dhcpv4_irmin.Table.t;
+  table: Dhcpv4_irmin.Table.t ref;
   serverIP: Ipaddr.V4.t; (*The IP address of the interface that should be used to communicate with hosts on this subnet*)
 }

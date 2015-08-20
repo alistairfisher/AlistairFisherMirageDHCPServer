@@ -329,7 +329,6 @@ let read_DHCP_config filename serverIPs =
   let global_default_lease  = !(parameters.globals.default_lease_length) in
   let global_max_lease = !(parameters.globals.max_lease_length) in
   let global_parameters = !(parameters.globals.parameters) in
-  let table = Dhcpv4_irmin.Table.empty in
   let rec extract_subnets = function
     |[]-> []
     |(subnet,netmask,(subnet_parameters:working_parameters))::t ->
@@ -349,7 +348,7 @@ let read_DHCP_config filename serverIPs =
           |Some lease -> lease
           |None -> raise (Failure ("No max lease length for subnet "^(Ipaddr.V4.to_string subnet)))
       in
-      let table = Dhcpv4_irmin.Table.empty in
+      let table = ref Dhcpv4_irmin.Table.empty in
       let default_lease_length =
         let subnet_lease = !(subnet_parameters.default_lease_length) in
         match subnet_lease with
