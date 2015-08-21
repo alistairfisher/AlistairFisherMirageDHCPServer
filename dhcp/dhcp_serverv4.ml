@@ -20,21 +20,20 @@ open Dhcp_serverv4_data_structures;;
 module Helper (Console:V1_LWT.CONSOLE)
   (Clock:V1.CLOCK) = struct
   
-  exception Error of string;;
+  exception DHCP_Server_Error of string;;
  
   let rec find_subnet ip_address subnets = (*Match an IP address to a subnet*)
     let routing_prefix netmask address= (*Find the routing prefix of address if it lived in the subnet with this netmask*)
-      let open Ipaddr.V4 in
-      let x = to_int32 address in
-      let y = to_int32 netmask in
-      of_int32(Int32.logand x y)
+      let x = Ipaddr.V4.to_int32 address in
+      let y = Ipaddr.V4.to_int32 netmask in
+      Ipaddr.V4.of_int32(Int32.logand x y)
     in
-    let compare_address_to_subnet subnet = (*Compare the supplied ip address to one subnet: they are the same if they have the same routing prefix*)
+    let compare_address_to_subnet subnet = (*Compare the supplied ip address to one subnet: the ip address is in the subnet if they have the same routing prefix*)
       let prefix = routing_prefix (subnet.netmask) in
       (prefix subnet.subnet)=(prefix ip_address)
     in
     match subnets with
-    |[] -> raise (Error ("Subnet not found for address "^Ipaddr.V4.to_string(ip_address)))
+    |[] -> raise (DHCP_Server_Error (Printf.sprintf "Subnet not found for address %s" (Ipaddr.V4.to_string(ip_address))))
     |h::t ->
       if (compare_address_to_subnet h) then h
       else find_subnet ip_address t;; 
@@ -69,7 +68,7 @@ module Helper (Console:V1_LWT.CONSOLE)
     let scope_bottom = Ipaddr.V4.to_int32 subnet.scope_bottom in
     let scope_top = Ipaddr.V4.to_int32 subnet.scope_top in
     let rec check_address ip_address =
-      if ip_address>scope_top then raise (Error "No available IP addresses in subnet") (*TODO: add subnet for diagnostic*)
+      if ip_address>scope_top then raise (DHCP_Server_Error (Printf.sprintf "No available IP addresses in subnet %s" (Ipaddr.V4.to_string subnet.subnet)))
       else
         let ip_of_int32 = Ipaddr.V4.of_int32 ip_address in
         if Dhcpv4_irmin.Table.mem ip_of_int32 !(subnet.table) then
@@ -166,7 +165,7 @@ module Helper (Console:V1_LWT.CONSOLE)
         (match (find packet(function `Server_identifier id ->Some id |_ -> None)) with
           |Some server_identifier -> (*This is a response to an offer*)
             let requested_ip_address = match find packet (function `Requested_ip ip -> Some ip |_ -> None) with
-              |None -> raise (Error "DHCP Request -  Select with no requested IP")
+              |None -> raise (DHCP_Server_Error (Printf.sprintf "DHCP Request -  Select with no requested IP from client %s" client_identifier))
               |Some ip_address -> ip_address
             in
             if ((List.mem server_identifier t.serverIPs) && (check_reservation requested_ip_address client_subnet xid client_identifier)) then (
@@ -179,7 +178,7 @@ module Helper (Console:V1_LWT.CONSOLE)
           |None -> (*this is a renewal, rebinding or init_reboot.*)
             if (ciaddr = Ipaddr.V4.unspecified) then (*client in init-reboot*)
               let requested_IP = match find packet (function `Requested_ip ip -> Some ip |_ -> None) with
-                |None -> raise (Error "init-reboot with no requested IP")
+                |None -> raise (DHCP_Server_Error (Printf.sprintf "init-reboot with no requested IP from client %s" client_identifier))
                 |Some ip_address -> ip_address
               in
               if (is_available requested_IP client_subnet) then (*address is available, lease to client*)
@@ -210,7 +209,7 @@ module Helper (Console:V1_LWT.CONSOLE)
                   Some (server_construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options);
                 else (*this server is not responsible for this binding*)
                   None
-              else None (*error case, this should never be used*)
+              else None
             )
       |`Decline -> (*This means that the client has discovered that the offered IP address is in use, the server responds by reserving the address until a client explicitly releases it*)
         (match find packet (function `Requested_ip ip -> Some ip |_ -> None) with
@@ -228,7 +227,11 @@ module Helper (Console:V1_LWT.CONSOLE)
         Some (server_construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:yiaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options);
       | _ -> None (*this is a packet meant for a client*)
       with
-      |Error _ -> None
+      |DHCP_Server_Error message ->
+        let timestamp = Clock.time() in
+        let error_message = Printf.sprintf "[%f] Dhcp server error: %s" timestamp message in
+        (*Console.log t.c error_message;*)
+        None
       |Not_found -> None
   
   let read_config serverIPs filename = 
