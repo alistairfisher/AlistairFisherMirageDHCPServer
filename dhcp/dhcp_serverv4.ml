@@ -233,6 +233,15 @@ module Helper (Console:V1_LWT.CONSOLE)
   
   let read_config serverIPs filename = 
     Dhcp_serverv4_config_parser.read_DHCP_config filename serverIPs;;
+ 
+  let rec garbage_collect t collection_interval =
+    (*Console.log t.c (sprintf "GC running!");*)
+    let gc_subnet subnet = subnet.table := (Dhcpv4_irmin.Table.expire !(subnet.table) (int_of_float (Clock.time()))) in
+    let rec gc = function
+      |[] -> Time.sleep collection_interval >>= fun () -> garbage_collect t collection_interval
+      |h::t -> (gc_subnet h);(gc t)
+   in   
+   gc (t.subnets);;
     
 end  
   
@@ -271,5 +280,5 @@ module Make (Console:V1_LWT.CONSOLE)
   
   let start ~c ~clock ~udp ~ip = 
     let t = server_set_up c ip in
-    serverThread t udp;
+    Lwt.join [serverThread t udp;garbage_collect t 60.0];;
 end
