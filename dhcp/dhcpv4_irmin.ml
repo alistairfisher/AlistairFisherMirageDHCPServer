@@ -21,7 +21,11 @@ module Lease_state = struct
     |Reserved (xid,client_identifier)-> Printf.sprintf "Reserved %s %s" (Int32.to_string xid) client_identifier
     |Active client_identifier-> Printf.sprintf "Active %s" client_identifier;;
     
-  let compare x y = 0;;
+  let compare x y =
+    match (x,y) with
+    |(Reserved _),(Active _) -> -1
+    |(Active _),(Reserved _) -> 1
+    | _ -> 0;;
   
 end
 
