@@ -81,6 +81,12 @@ module Helper (Console:V1_LWT.CONSOLE)
   let is_available address subnet = 
     not (Dhcpv4_irmin.Table.mem address !(subnet.table)) && (subnet.scope_bottom <= address) && (subnet.scope_top>= address);;
   
+  let check_static_hosts client_identifier subnet =
+    try
+      Some (List.assoc client_identifier (subnet.static_hosts))
+    with
+    |Not_found -> None;;
+  
   type t = {
     (*c: Console.t;*)
     server_subnet: subnet; (*A handle on the subnet that the server lives on, convenient for allocating addresses to hosts on the same subnet as the server*)
@@ -141,11 +147,15 @@ module Helper (Console:V1_LWT.CONSOLE)
       let open Dhcp_serverv4_options in
       match packet.op with
       |`Discover -> (* TODO: should probe address via ICMP here, and ensure that it's actually free, and try a new one if not*)
-        let reserved_ip_address = match find packet (function `Requested_ip requested_address -> Some requested_address | _ -> None) with (*check whether the client has requested a specific address, and if possible reserve it for them*)
-          |None-> first_address client_subnet
-          |Some requested_address ->
-            if (is_available requested_address client_subnet) then requested_address
-            else first_address client_subnet
+        let reserved_ip_address = 
+          match (check_static_hosts client_identifier client_subnet) with
+          |Some address -> address
+          |None ->
+             match find packet (function `Requested_ip requested_address -> Some requested_address | _ -> None) with (*check whether the client has requested a specific address, and if possible reserve it for them*)
+             |None-> first_address client_subnet
+             |Some requested_address ->
+               if (is_available requested_address client_subnet) then requested_address
+              else first_address client_subnet
         in
         add_address reserved_ip_address (Dhcpv4_irmin.Lease_state.Reserved (xid,client_identifier)) client_subnet lease_length;
         let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
