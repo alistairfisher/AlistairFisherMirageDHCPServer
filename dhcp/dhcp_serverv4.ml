@@ -17,6 +17,14 @@ open OS;;
 open Dhcpv4_util;;
 open Dhcp_serverv4_data_structures;;
 
+type t = {
+  (*c: Console.t;*)
+  server_subnet: subnet; (*A handle on the subnet that the server lives on, convenient for allocating addresses to hosts on the same subnet as the server*)
+  serverIPs: Ipaddr.V4.t list;
+  subnets: subnet list;
+  global_parameters:  Dhcpv4_option.t list;
+}
+
 module Helper (Console:V1_LWT.CONSOLE)
   (Clock:V1.CLOCK) = struct
   

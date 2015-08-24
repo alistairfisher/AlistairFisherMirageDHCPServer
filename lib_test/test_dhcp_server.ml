@@ -5,29 +5,49 @@ open Lwt.Infix;;
 open Dhcpv4_util;;
 open Dhcpv4_option;;
 open Dhcpv4_option.Packet;;
+open Dhcp_serverv4_data_structures;;
 open Common;;
 open Vnetif_common;;
 open Console;;
-
-let client_mac_address = "10:9a:dd:c0:ff:ee";;
-let client_ip_address = Ipaddr.V4.of_string_exn "192.1.1.10";; (*Used in renewals, rebindings and init-reboot tests*)
-let server_ip_address = Ipaddr.V4.of_string_exn "192.1.1.1";; (*Ensure config file agrees*)
-let gateway_ip_address1 = Ipaddr.V4.of_string_exn "192.1.2.1";;
-let gateway_ip_address2 = Ipaddr.V4.of_string_exn "192.1.3.1";;
-let unspecified = Ipaddr.V4.unspecified;;
-let unspecifiedint32 = Int32.of_int 0;;
-
 
 module C = Console
 module Cl = Clock
 module H = Dhcp_serverv4.Helper(C)(Cl)
 open H;;
 
-let t =
- let serverIPs = [server_ip_address] in
- let subnets,global_parameters = H.read_config serverIPs "/etc/Dhcpd.conf" in
- let server_subnet = List.hd(subnets) in
- {server_subnet;serverIPs;subnets;global_parameters};;
+let client_mac_address = "10:9a:dd:c0:ff:ee";;
+let client_ip_address = Ipaddr.V4.of_string_exn "192.1.1.10";; (*Used in renewals, rebindings and init-reboot tests*)
+let server_ip_address = Ipaddr.V4.of_string_exn "192.1.1.1";; (*Ensure config file agrees*)
+let gateway_ip_address1 = Ipaddr.V4.of_string_exn "192.1.2.1";;
+let gateway_ip_address2 = Ipaddr.V4.of_string_exn "192.1.3.1";;
+
+
+let make_subnet scope_bottom scope_top = 
+  let scope_bottom = Ipaddr.V4.of_string_exn scope_bottom in
+  let scope_top = Ipaddr.V4.of_string_exn scope_top in
+  {
+    subnet =scope_bottom;
+    netmask = Ipaddr.V4.of_string_exn "255.255.255.0";
+    parameters = [];
+    scope_bottom = scope_bottom;
+    scope_top = scope_top;
+    max_lease_length = Int32.of_int 60;
+    default_lease_length = Int32.of_int 30;
+    table = ref Dhcpv4_irmin.Table.empty;
+    serverIP = server_ip_address;
+    static_hosts = [];
+  };;
+
+let t = 
+  {
+    server_subnet = (make_subnet "192.1.1.2" "192.1.1.10");
+    serverIPs = [Ipaddr.V4.of_string_exn "192.1.1.1"];
+    subnets = [make_subnet "192.1.1.2" "192.1.1.10";make_subnet "192.1.2.2" "192.1.2.10";make_subnet "192.1.3.2" "192.1.3.10"];
+    global_parameters = [];
+  };;
+
+let unspecified = Ipaddr.V4.unspecified;;
+let unspecifiedint32 = Int32.of_int 0;;
 
 let dhcp_packet_builder xid flags ciaddr yiaddr siaddr giaddr options= 
  let open Dhcp_clientv4 in
