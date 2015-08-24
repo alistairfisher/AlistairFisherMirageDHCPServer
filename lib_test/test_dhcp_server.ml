@@ -21,7 +21,6 @@ let server_ip_address = Ipaddr.V4.of_string_exn "192.1.1.1";; (*Ensure config fi
 let gateway_ip_address1 = Ipaddr.V4.of_string_exn "192.1.2.1";;
 let gateway_ip_address2 = Ipaddr.V4.of_string_exn "192.1.3.1";;
 
-
 let make_subnet scope_bottom scope_top = 
   let scope_bottom = Ipaddr.V4.of_string_exn scope_bottom in
   let scope_top = Ipaddr.V4.of_string_exn scope_top in
