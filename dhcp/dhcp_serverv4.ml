@@ -87,7 +87,7 @@ module Helper (Console:V1_LWT.CONSOLE)
     |Not_found -> None;;
   
   type t = {
-    (*c: Console.t;*)
+    c: Console.t;
     server_subnet: subnet; (*A handle on the subnet that the server lives on, convenient for allocating addresses to hosts on the same subnet as the server*)
     serverIPs: Ipaddr.V4.t list;
     subnets: subnet list;
@@ -115,7 +115,7 @@ module Helper (Console:V1_LWT.CONSOLE)
     let chaddr = packet.chaddr in
     let flags  = packet.flags in
     let packet = packet.options in
-    (*Lwt_list.iter_s (Console.log_s t.c) TODO: put this back
+    (*Lwt_list.iter_s (Console.log_s t.c)
       [ "DHCP response:";
         sprintf "input ciaddr %s yiaddr %s" (Ipaddr.V4.to_string ciaddr) (Ipaddr.V4.to_string yiaddr);
         sprintf "siaddr %s giaddr %s" (Ipaddr.V4.to_string siaddr) (Ipaddr.V4.to_string giaddr);
@@ -125,7 +125,9 @@ module Helper (Console:V1_LWT.CONSOLE)
       let open Dhcpv4_option.Packet in
       let client_identifier = match find packet (function `Client_id id -> Some id |_ -> None) with (*If a client ID is explcitly provided, use it, else default to using client hardware address for id*)
         |None -> chaddr
-        |Some id-> (*Console.log t.c (sprintf "Client identifer set to %s" id);*)id
+        |Some id-> 
+          Console.log t.c (sprintf "Client identifer set to %s" id);
+          id
       in
       let client_subnet =
         if (giaddr = Ipaddr.V4.unspecified) then (*either unicasted or on same subnet*)
@@ -159,7 +161,6 @@ module Helper (Console:V1_LWT.CONSOLE)
         add_address reserved_ip_address (Dhcpv4_irmin.Lease_state.Reserved (xid,client_identifier)) client_subnet lease_length;
         let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
         ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Offer in
-        (*send DHCP Offer*)
         Some (server_construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:reserved_ip_address ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options);
       |`Request ->
         (match (find packet(function `Server_identifier id ->Some id |_ -> None)) with
@@ -169,7 +170,7 @@ module Helper (Console:V1_LWT.CONSOLE)
               |Some ip_address -> ip_address
             in
             if ((List.mem server_identifier t.serverIPs) && (check_reservation requested_ip_address client_subnet xid client_identifier)) then (
-              change_address_state requested_ip_address (Active client_identifier) client_subnet lease_length;
+              change_address_state requested_ip_address (Dhcpv4_irmin.Lease_state.Active client_identifier) client_subnet lease_length;
               let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
               ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
               Some (server_construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:requested_ip_address ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options);
@@ -215,7 +216,7 @@ module Helper (Console:V1_LWT.CONSOLE)
         (match find packet (function `Requested_ip ip -> Some ip |_ -> None) with
           |None -> None
           |Some ip_address ->
-            change_address_state ip_address (Active "client_unknown") client_subnet lease_length;
+            change_address_state ip_address (Dhcpv4_irmin.Lease_state.Active "client_unknown") client_subnet lease_length;
             None
         )
       |`Release ->
@@ -230,7 +231,7 @@ module Helper (Console:V1_LWT.CONSOLE)
       |DHCP_Server_Error message ->
         let timestamp = Clock.time() in
         let error_message = Printf.sprintf "[%f] Dhcp server error: %s" timestamp message in
-        (*Console.log t.c error_message;*)
+        Console.log t.c error_message;
         None
       |Not_found -> None
   
@@ -238,7 +239,7 @@ module Helper (Console:V1_LWT.CONSOLE)
     Dhcp_serverv4_config_parser.read_DHCP_config filename serverIPs;;
  
   let rec garbage_collect t collection_interval =
-    (*Console.log t.c (sprintf "GC running!");*)
+    Console.log t.c (sprintf "GC running!");
     let gc_subnet subnet = subnet.table := (Dhcpv4_irmin.Table.expire !(subnet.table) (int_of_float (Clock.time()))) in
     let rec gc = function
       |[] -> Time.sleep collection_interval >>= fun () -> garbage_collect t collection_interval
@@ -261,16 +262,16 @@ module Make (Console:V1_LWT.CONSOLE)
     match parse_packet t ~src:src ~dst:dst ~packet:dhcp_packet with
     |None -> Lwt.return_unit;
     |Some (p,d) ->
-      (*Console.log_s t.c (sprintf "Sending DHCP broadcast")
-      >>= fun () ->*)
+      Console.log_s t.c (sprintf "Sending DHCP broadcast")
+      >>= fun () ->
         Udp.write ~dest_ip:d ~source_port:68 ~dest_port:67 udp p
     
   let server_set_up c ip =
-    let serverIPs = Ip.get_ip ip in (*TODO: find out about multiple IP addreses on one host*)
+    let serverIPs = Ip.get_ip ip in
     let sample_server_ip = List.hd serverIPs in
     let subnets,global_parameters = read_config serverIPs "/etc/dhcpd.conf" in
     let server_subnet = find_subnet sample_server_ip subnets in
-    {server_subnet;serverIPs;subnets;global_parameters};;
+    {c;server_subnet;serverIPs;subnets;global_parameters};;
   
   let serverThread t udp =
     let listener ~dst_port =
