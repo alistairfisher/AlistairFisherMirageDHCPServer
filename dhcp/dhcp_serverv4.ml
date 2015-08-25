@@ -16,7 +16,7 @@ open Printf;;
 open OS;;
 open Dhcpv4_util;;
 
-module Internal (Console:V1_LWT.CONSOLE) )(*The internal part of the server (no networking) is kept separate for ease of testing*)
+module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no networking) is kept separate for ease of testing*)
   (Clock:V1.CLOCK)
   (Maker:Irmin.S_MAKER) = struct
   
@@ -38,8 +38,9 @@ module Internal (Console:V1_LWT.CONSOLE) )(*The internal part of the server (no 
         |"Active" ->
           let client_id = (List.nth tokens 1) in
           Some (Active client_id)
+        | _ -> None
       with
-      | _ -> None;;
+      |_ -> None;;
   
     let to_string = function
       |Reserved (xid,client_identifier)-> Printf.sprintf "Reserved %s %s" (Int32.to_string xid) client_identifier
@@ -54,9 +55,9 @@ module Internal (Console:V1_LWT.CONSOLE) )(*The internal part of the server (no 
  
   module Entry = Inds_entry.Make(Lease_state)
   module Table = Inds_table.Make(Ipaddr.V4)(Entry)(Irmin.Path.String_list)
-  module I = Irmin.Basic(Maker)(T)
+  module I = Irmin.Basic(Maker)(Table)
  
-  module Data_structures
+  module Data_structures = struct
 
     type reserved_address = { (*An address that has been offered to a client, but not yet accepted*)
       reserved_ip_address: Ipaddr.V4.t;
@@ -69,7 +70,6 @@ module Internal (Console:V1_LWT.CONSOLE) )(*The internal part of the server (no 
       lease_timestamp:float;
       ip_address: Ipaddr.V4.t;
     }
-
   
     (*TODO: use client ID to differentiate explicit ID from hardware address, allowing different hardware types.*)    
     type client_identifier = string;; (*According to RFC 2131, this should be the client's hardware address unless an explicit identifier is provided. The RFC states that the ID must be unique
@@ -86,12 +86,28 @@ module Internal (Console:V1_LWT.CONSOLE) )(*The internal part of the server (no 
       default_lease_length: int32;
       serverIP: Ipaddr.V4.t; (*The IP address of the interface that should be used to communicate with hosts on this subnet*)
       static_hosts: (string*Ipaddr.V4.t) list;
-      table: I.t;
     }
     
-  end
+    type dhcpd_config = {
+      globals: Dhcpv4_option.t list;
+      subnets: subnet list;
+    }
+    
+  end 
+  
+  type t = {
+    c: Console.t;
+    server_subnet: Data_structures.subnet; (*A handle on the subnet that the server lives on, convenient for allocating addresses to hosts on the same subnet as the server*)
+    serverIPs: Ipaddr.V4.t list;
+    subnets: Data_structures.subnet list;
+    global_parameters:  Dhcpv4_option.t list;
+    addresses: I.t;
+    config: Irmin.config;
+    node: Table.Path.t
+  }
  
   let rec find_subnet ip_address subnets = (*Match an IP address to a subnet*)
+    let open Data_structures in
     let routing_prefix netmask address= (*Find the routing prefix of address if it lived in the subnet with this netmask*)
       let x = Ipaddr.V4.to_int32 address in
       let y = Ipaddr.V4.to_int32 netmask in
@@ -109,60 +125,77 @@ module Internal (Console:V1_LWT.CONSOLE) )(*The internal part of the server (no 
   
   (*Irmin helpers*)
   
-  let change_address_state address state subnet lease_time =
+  let task owner =
+    Irmin.Task.create ~date:(Int64.of_float (Clock.time ())) ~owner 
+  
+  let get_table_branch t = I.head_exn t.addresses >>= fun head -> (*returns a temporary branch of HEAD*)
+    I.of_head t.config (task "Hello") head
+  
+  let get_table t =
+    get_table_branch t >>= fun branch ->
+    I.read_exn (branch "Get table") t.node;;
+  
+  let merge_changes t branch update message =
+    I.update (branch message) t.node update >>=
+    let f x = t.addresses in
+    fun () ->
+    I.merge_exn "Attempt to merge in changes" branch ~into:f;;
+   
+  let change_address_state address state t lease_time =
     let lease_time = Int32.to_int lease_time in
-    let entry = Dhcpv4_irmin.Entry.make_confirmed ((int_of_float(Clock.time())) + lease_time) state in
-    subnet.table := Dhcpv4_irmin.Table.add address entry !(subnet.table);;
+    let entry = Entry.make_confirmed ((int_of_float(Clock.time())) + lease_time) state in
+    get_table_branch t >>= fun new_branch ->
+    I.read_exn (new_branch "Get table") t.node >>=fun current_table ->
+    let new_table = Table.add address entry current_table in
+    let message = Printf.sprintf "Change address %s to state %s" (Ipaddr.V4.to_string address) (Lease_state.to_string state) in
+    merge_changes t new_branch new_table message;;
+      
+  let find_address address t =
+    get_table t >>= fun table ->
+    let Entry.Confirmed(time,lease_state) = Table.find address table in
+    Lwt.return lease_state
+
+  let remove_address address t =
+    get_table_branch t >>= fun new_branch ->
+    I.read_exn (new_branch "Get table") t.node >>= fun current_table ->
+    let new_table = Table.remove address current_table in
+    let message = Printf.sprintf "Removing address %s" (Ipaddr.V4.to_string address) in
+    merge_changes t new_branch new_table message;;
   
-  let add_address address state subnet lease_time =
-    let lease_time = Int32.to_int lease_time in
-    let entry = Dhcpv4_irmin.Entry.make_confirmed ((int_of_float(Clock.time())) + lease_time) state in
-    let new_table = Dhcpv4_irmin.Table.add address (I.get_head_exn subnet.table) in
-    
-  
-  let find_address address subnet =
-    let Dhcpv4_irmin.Entry.Confirmed(time,lease_state) = Dhcpv4_irmin.Table.find address !(subnet.table) in
-    lease_state;; 
-  
-  let remove_address address subnet =
-    subnet.table := Dhcpv4_irmin.Table.remove address !(subnet.table);;
-  
-  let check_reservation address subnet xid client_identifier = (*Check whether a request uses the correct xid and client id for the reservation*)
+  let check_reservation address t xid client_identifier = (*Check whether a request uses the correct xid and client id for the reservation*)
+    get_table t >>= fun table ->
     try
-      let Dhcpv4_irmin.Entry.Confirmed(time,address_state) = Dhcpv4_irmin.Table.find address !(subnet.table) in
-      address_state = (Dhcpv4_irmin.Lease_state.Reserved (xid,client_identifier))
+      let Entry.Confirmed(time,address_state) = Table.find address table in
+      Lwt.return (address_state = (Lease_state.Reserved (xid,client_identifier)))
     with
-    | Not_found -> false;;
+    | Not_found -> Lwt.return false;;
   
-  let first_address subnet =  (*first available address*)
+  let is_available address t subnet=
+    let open Data_structures in
+    get_table t >>= fun table ->
+    Lwt.return(not (Table.mem address table) && (subnet.scope_bottom <= address) && (subnet.scope_top>= address));;
+  
+  let first_address t subnet =  (*first available address*)
+    let open Data_structures in
     let scope_bottom = Ipaddr.V4.to_int32 subnet.scope_bottom in
     let scope_top = Ipaddr.V4.to_int32 subnet.scope_top in
     let rec check_address ip_address =
       if ip_address>scope_top then raise (DHCP_Server_Error (Printf.sprintf "No available IP addresses in subnet %s" (Ipaddr.V4.to_string subnet.subnet)))
       else
         let ip_of_int32 = Ipaddr.V4.of_int32 ip_address in
-        if Dhcpv4_irmin.Table.mem ip_of_int32 !(subnet.table) then
-          check_address (Int32.add ip_address Int32.one)
-        else ip_of_int32
+        is_available ip_of_int32 t subnet >>= fun available ->
+        if available then
+          Lwt.return ip_of_int32
+        else check_address (Int32.add ip_address Int32.one)
     in
     check_address scope_bottom;;
-
-  let is_available address subnet = 
-    not (Dhcpv4_irmin.Table.mem address !(subnet.table)) && (subnet.scope_bottom <= address) && (subnet.scope_top>= address);;
   
   let check_static_hosts client_identifier subnet =
+    let open Data_structures in
     try
       Some (List.assoc client_identifier (subnet.static_hosts))
     with
     |Not_found -> None;;
-  
-  type t = {
-    c: Console.t;
-    server_subnet: subnet; (*A handle on the subnet that the server lives on, convenient for allocating addresses to hosts on the same subnet as the server*)
-    serverIPs: Ipaddr.V4.t list;
-    subnets: subnet list;
-    global_parameters:  Dhcpv4_option.t list;
-  }
   
   let server_construct_packet ?nak:(n=false) t ~xid ~ciaddr ~yiaddr ~siaddr ~giaddr ~chaddr ~flags ~options =
     let dest_ip_address =
@@ -217,31 +250,33 @@ module Internal (Console:V1_LWT.CONSOLE) )(*The internal part of the server (no 
       let open Dhcp_serverv4_options in
       match packet.op with
       |`Discover -> (* TODO: should probe address via ICMP here, and ensure that it's actually free, and try a new one if not*)
-        let reserved_ip_address = 
-          match (check_static_hosts client_identifier client_subnet) with
-          |Some address ->
-            Console.log t.c (Printf.sprintf "Allocating static address %s to host %s" (Ipaddr.V4.to_string address) client_identifier);
-            address
-          |None ->
-             match find packet (function `Requested_ip requested_address -> Some requested_address | _ -> None) with (*check whether the client has requested a specific address, and if possible reserve it for them*)
-             |None->
-               let reservation = first_address client_subnet in
-               Console.log t.c (Printf.sprintf "No requested address from client %s, allocating address %s" client_identifier (Ipaddr.V4.to_string reservation));
-               reservation
-             |Some requested_address ->
-              if (is_available requested_address client_subnet) then
-                (*Console.log t.c (Printf.sprintf "Host %s requested address %s, this was available and has been allocated" client_identifier (Ipaddr.V4.to_string requested_address));*)
-                requested_address
-              else
-                let reservation = first_address client_subnet in
-                Console.log t.c (Printf.sprintf "Host %s requested address %s, this was unavailable and address %s has been allocated instead" client_identifier
-                  (Ipaddr.V4.to_string requested_address) (Ipaddr.V4.to_string reservation));
-                reservation
-        in
-        add_address reserved_ip_address (Dhcpv4_irmin.Lease_state.Reserved (xid,client_identifier)) client_subnet lease_length;
+        ((match (check_static_hosts client_identifier client_subnet) with
+        |Some address ->
+          Console.log t.c (Printf.sprintf "Allocating static address %s to host %s" (Ipaddr.V4.to_string address) client_identifier);
+          Lwt.return address
+        |None -> (*choose reserved_address*)
+          match find packet (function `Requested_ip requested_address -> Some requested_address | _ -> None) with (*check whether the client has requested a specific address, and if possible reserve it for them*)
+          |None->
+            first_address t client_subnet >>= fun reservation ->
+            Console.log t.c (Printf.sprintf "No requested address from client %s, allocating address %s" client_identifier (Ipaddr.V4.to_string reservation));
+            Lwt.return reservation
+          |Some requested_address ->
+            is_available requested_address t client_subnet >>= fun available ->
+            if available then
+              (*Console.log t.c (Printf.sprintf "Host %s requested address %s, this was available and has been allocated" client_identifier (Ipaddr.V4.to_string requested_address));*)
+              Lwt.return requested_address
+            else
+              first_address t client_subnet >>= fun reservation ->
+              Console.log t.c (Printf.sprintf "Host %s requested address %s, this was unavailable and address %s has been allocated instead" client_identifier
+              (Ipaddr.V4.to_string requested_address) (Ipaddr.V4.to_string reservation));
+              Lwt.return reservation)
+        >>= fun reserved_ip_address ->
+        change_address_state reserved_ip_address (Lease_state.Reserved (xid,client_identifier)) t lease_length
+        >>= fun () ->
         let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
         ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Offer in
-        Some (server_construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:reserved_ip_address ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options);
+        Lwt.return (Some (server_construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:reserved_ip_address ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options));
+        )
       |`Request ->
         (match (find packet(function `Server_identifier id ->Some id |_ -> None)) with
           |Some server_identifier -> (*This is a response to an offer*)
@@ -249,8 +284,8 @@ module Internal (Console:V1_LWT.CONSOLE) )(*The internal part of the server (no 
               |None -> raise (DHCP_Server_Error (Printf.sprintf "DHCP Request -  Select with no requested IP from client %s" client_identifier))
               |Some ip_address -> ip_address
             in
-            if ((List.mem server_identifier t.serverIPs) && (check_reservation requested_ip_address client_subnet xid client_identifier)) then (
-              change_address_state requested_ip_address (Dhcpv4_irmin.Lease_state.Active client_identifier) client_subnet lease_length;
+            if ((List.mem server_identifier t.serverIPs) && (check_reservation requested_ip_address t xid client_identifier)) then (
+              change_address_state requested_ip_address (Lease_state.Active client_identifier) t lease_length >>= fun () ->
               let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
               ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
               Some (server_construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:requested_ip_address ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options);
@@ -262,9 +297,9 @@ module Internal (Console:V1_LWT.CONSOLE) )(*The internal part of the server (no 
                 |None -> raise (DHCP_Server_Error (Printf.sprintf "init-reboot with no requested IP from client %s" client_identifier))
                 |Some ip_address -> ip_address
               in
-              if (is_available requested_IP client_subnet) then (*address is available, lease to client*)
-                let f = change_address_state requested_IP (Dhcpv4_irmin.Lease_state.Active client_identifier) client_subnet lease_length in
-                f;
+              if (is_available requested_IP t) then (*address is available, lease to client*)
+                let f = change_address_state requested_IP (Lease_state.Active client_identifier) t lease_length in
+                f; (*TODO: fix this*)
                 let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
                 ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
                 Some (server_construct_packet t ~xid:xid ~ciaddr:(Ipaddr.V4.unspecified) ~yiaddr:requested_IP ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options);
@@ -275,16 +310,16 @@ module Internal (Console:V1_LWT.CONSOLE) )(*The internal part of the server (no 
             else (*client in renew or rebind.*)
               if (dst = serverIP) then (*the packet was unicasted here, it's a renewal. Currently accept all renewals*)
                 (*Note: RFC 2131 states that the server should trust the client here, despite potential security issues*)
-                let table = change_address_state ciaddr (Dhcpv4_irmin.Lease_state.Active client_identifier) client_subnet lease_length in
-                table;
+                let table = change_address_state ciaddr (Lease_state.Active client_identifier) t lease_length in
+                table; (*Fix this too*)
                 let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
                 ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
                 Some (server_construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options);
               else if (dst = Ipaddr.V4.broadcast) then (*the packet was multicasted, it's a rebinding*)
-                let address_info = find_address ciaddr client_subnet in
-                if (address_info = Dhcpv4_irmin.Lease_state.Active client_identifier) then (*this server is responsible for this.*)
-                  let table = change_address_state ciaddr (Dhcpv4_irmin.Lease_state.Active client_identifier) client_subnet lease_length in
-                  table;
+                let address_info = find_address ciaddr t in
+                if (address_info = Lease_state.Active client_identifier) then (*this server is responsible for this.*)
+                  let table = change_address_state ciaddr (Lease_state.Active client_identifier) t lease_length in
+                  table; (*fix this*)
                   let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
                   ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
                   Some (server_construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options);
@@ -296,11 +331,11 @@ module Internal (Console:V1_LWT.CONSOLE) )(*The internal part of the server (no 
         (match find packet (function `Requested_ip ip -> Some ip |_ -> None) with
           |None -> None
           |Some ip_address ->
-            change_address_state ip_address (Dhcpv4_irmin.Lease_state.Active "client_unknown") client_subnet lease_length;
+            change_address_state ip_address (Lease_state.Active "client_unknown") t lease_length;
             None
         )
       |`Release ->
-        remove_address ciaddr client_subnet;
+        remove_address ciaddr t;
         None          
       |`Inform ->
         let options = make_options_without_lease ~client_requests:client_requests ~serverIP:serverIP ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
@@ -320,7 +355,7 @@ module Internal (Console:V1_LWT.CONSOLE) )(*The internal part of the server (no 
  
   let rec garbage_collect t collection_interval =
     Console.log t.c (sprintf "GC running!");
-    let gc_subnet subnet = subnet.table := (Dhcpv4_irmin.Table.expire !(subnet.table) (int_of_float (Clock.time()))) in
+    let gc_subnet subnet = subnet.table := (Table.expire !(subnet.table) (int_of_float (Clock.time()))) in
     let rec gc = function
       |[] -> Time.sleep collection_interval >>= fun () -> garbage_collect t collection_interval
       |h::t -> (gc_subnet h);(gc t)
@@ -347,13 +382,17 @@ module Make (Console:V1_LWT.CONSOLE)
       Console.log_s t.c "Sending DHCP broadcast"
       >>= fun () ->
         Udp.write ~dest_ip:d ~source_port:68 ~dest_port:67 udp p
+   
+  let task owner =
+    Irmin.Task.create ~date:(Int64.of_float (Clock.time ())) ~owner 
     
-  let server_set_up c ip =
+  let server_set_up c ip irmin_config node dhcpd_config =
     let serverIPs = Ip.get_ip ip in
     let sample_server_ip = List.hd serverIPs in
-    let subnets,global_parameters = read_config serverIPs "/etc/dhcpd.conf" in
+    let subnets,global_parameters = dhcpd.subnets,dhcpd.globals in
     let server_subnet = find_subnet sample_server_ip subnets in
-    {c;server_subnet;serverIPs;subnets;global_parameters};;
+    let addresses = I.create config task in
+    {c;server_subnet;serverIPs;subnets;global_parameters;addresses;irmin_config;node};;
   
   let serverThread t udp =
     let listener ~dst_port =
@@ -364,7 +403,7 @@ module Make (Console:V1_LWT.CONSOLE)
     let make_unit x = Lwt.return_unit in
     make_unit (Udp.input ~listeners:listener udp);;
   
-  let start ~c ~clock ~udp ~ip = 
-    let t = server_set_up c ip in
+  let start ~c ~clock ~udp ~ip irmin_config (dhcpd_config:dhcpd_config) = 
+    let t = server_set_up c ip irmin_config dhcpd_config in
     Lwt.join [serverThread t udp;garbage_collect t 60.0];;
 end
