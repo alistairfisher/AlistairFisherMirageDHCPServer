@@ -126,7 +126,6 @@ module Helper (Console:V1_LWT.CONSOLE)
       let client_identifier = match find packet (function `Client_id id -> Some id |_ -> None) with (*If a client ID is explcitly provided, use it, else default to using client hardware address for id*)
         |None -> chaddr
         |Some id-> 
-          Console.log t.c (sprintf "Client identifer set to %s" id);
           id
       in
       let client_subnet =
@@ -150,13 +149,24 @@ module Helper (Console:V1_LWT.CONSOLE)
       |`Discover -> (* TODO: should probe address via ICMP here, and ensure that it's actually free, and try a new one if not*)
         let reserved_ip_address = 
           match (check_static_hosts client_identifier client_subnet) with
-          |Some address -> address
+          |Some address ->
+            Console.log t.c (Printf.sprintf "Allocating static address %s to host %s" (Ipaddr.V4.to_string address) client_identifier);
+            address
           |None ->
              match find packet (function `Requested_ip requested_address -> Some requested_address | _ -> None) with (*check whether the client has requested a specific address, and if possible reserve it for them*)
-             |None-> first_address client_subnet
+             |None->
+               let reservation = first_address client_subnet in
+               Console.log t.c (Printf.sprintf "No requested address from client %s, allocating address %s" client_identifier (Ipaddr.V4.to_string reservation));
+               reservation
              |Some requested_address ->
-               if (is_available requested_address client_subnet) then requested_address
-              else first_address client_subnet
+              if (is_available requested_address client_subnet) then
+                (*Console.log t.c (Printf.sprintf "Host %s requested address %s, this was available and has been allocated" client_identifier (Ipaddr.V4.to_string requested_address));*)
+                requested_address
+              else
+                let reservation = first_address client_subnet in
+                Console.log t.c (Printf.sprintf "Host %s requested address %s, this was unavailable and address %s has been allocated instead" client_identifier
+                  (Ipaddr.V4.to_string requested_address) (Ipaddr.V4.to_string reservation));
+                reservation
         in
         add_address reserved_ip_address (Dhcpv4_irmin.Lease_state.Reserved (xid,client_identifier)) client_subnet lease_length;
         let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
@@ -259,10 +269,11 @@ module Make (Console:V1_LWT.CONSOLE)
   
   let input t udp ~src ~dst ~src_port:_ buf =
     let dhcp_packet = dhcp_packet_of_cstruct buf in
+    Console.log t.c (Printf.sprintf "Packet received from host %s" (Ipaddr.V4.to_string src));
     match parse_packet t ~src:src ~dst:dst ~packet:dhcp_packet with
     |None -> Lwt.return_unit;
     |Some (p,d) ->
-      Console.log_s t.c (sprintf "Sending DHCP broadcast")
+      Console.log_s t.c "Sending DHCP broadcast"
       >>= fun () ->
         Udp.write ~dest_ip:d ~source_port:68 ~dest_port:67 udp p
     
