@@ -15,12 +15,81 @@ open Lwt.Infix;;
 open Printf;;
 open OS;;
 open Dhcpv4_util;;
-open Dhcp_serverv4_data_structures;;
 
-module Helper (Console:V1_LWT.CONSOLE)
-  (Clock:V1.CLOCK) = struct
+module Internal (Console:V1_LWT.CONSOLE) )(*The internal part of the server (no networking) is kept separate for ease of testing*)
+  (Clock:V1.CLOCK)
+  (Maker:Irmin.S_MAKER) = struct
   
   exception DHCP_Server_Error of string;;
+ 
+  module Lease_state = struct
+    type t = | Reserved of (int32*string) | Active of string (*use the int32 to hold a reservations transaction id*) (*TODO: use Dhcpv4_datastructures.client_identifier instead of string*)
+  
+    let of_string s = 
+      try
+        let regexp = Str.regexp " " in
+        let tokens = Str.split regexp s in
+        let lease_state = List.hd tokens in
+        match lease_state with
+        |"Reserved" ->
+          let xid = Int32.of_string (List.nth tokens 1) in
+          let client_id = (List.nth tokens 2) in
+          Some (Reserved (xid,client_id))
+        |"Active" ->
+          let client_id = (List.nth tokens 1) in
+          Some (Active client_id)
+      with
+      | _ -> None;;
+  
+    let to_string = function
+      |Reserved (xid,client_identifier)-> Printf.sprintf "Reserved %s %s" (Int32.to_string xid) client_identifier
+      |Active client_identifier-> Printf.sprintf "Active %s" client_identifier;;
+    
+    let compare x y =
+      match (x,y) with
+      |(Reserved _),(Active _) -> -1
+      |(Active _),(Reserved _) -> 1
+      | _ -> 0;;
+  end
+ 
+  module Entry = Inds_entry.Make(Lease_state)
+  module Table = Inds_table.Make(Ipaddr.V4)(Entry)(Irmin.Path.String_list)
+  module I = Irmin.Basic(Maker)(T)
+ 
+  module Data_structures
+
+    type reserved_address = { (*An address that has been offered to a client, but not yet accepted*)
+      reserved_ip_address: Ipaddr.V4.t;
+      xid: Cstruct.uint32;
+      reservation_timestamp: float;
+    }
+  
+    type lease = {
+      lease_length:int32;
+      lease_timestamp:float;
+      ip_address: Ipaddr.V4.t;
+    }
+
+  
+    (*TODO: use client ID to differentiate explicit ID from hardware address, allowing different hardware types.*)    
+    type client_identifier = string;; (*According to RFC 2131, this should be the client's hardware address unless an explicit identifier is provided. The RFC states that the ID must be unique
+    within the subnet, but the onus is on the client to ensure this if it chooses to use an explicit identifier: the server shouldn't need to check it for uniqueness. The
+    full identifier is the combination of subnet and identifier, but the subnet is implicit in this implementation*)
+
+    type subnet = {
+      subnet: Ipaddr.V4.t;
+      netmask: Ipaddr.V4.t;
+      parameters: Dhcpv4_option.t list;
+      scope_bottom: Ipaddr.V4.t;
+      scope_top: Ipaddr.V4.t;
+      max_lease_length: int32;
+      default_lease_length: int32;
+      serverIP: Ipaddr.V4.t; (*The IP address of the interface that should be used to communicate with hosts on this subnet*)
+      static_hosts: (string*Ipaddr.V4.t) list;
+      table: I.t;
+    }
+    
+  end
  
   let rec find_subnet ip_address subnets = (*Match an IP address to a subnet*)
     let routing_prefix netmask address= (*Find the routing prefix of address if it lived in the subnet with this netmask*)
@@ -48,7 +117,8 @@ module Helper (Console:V1_LWT.CONSOLE)
   let add_address address state subnet lease_time =
     let lease_time = Int32.to_int lease_time in
     let entry = Dhcpv4_irmin.Entry.make_confirmed ((int_of_float(Clock.time())) + lease_time) state in
-    subnet.table := Dhcpv4_irmin.Table.add address entry !(subnet.table);;
+    let new_table = Dhcpv4_irmin.Table.add address (I.get_head_exn subnet.table) in
+    
   
   let find_address address subnet =
     let Dhcpv4_irmin.Entry.Confirmed(time,lease_state) = Dhcpv4_irmin.Table.find address !(subnet.table) in
@@ -262,9 +332,10 @@ end
 module Make (Console:V1_LWT.CONSOLE)
   (Clock:V1.CLOCK)
   (Udp:V1_LWT.UDPV4)
-  (Ip:V1_LWT.IPV4) = struct
+  (Ip:V1_LWT.IPV4)
+  (Maker:Irmin.S_MAKER) = struct
   
-  module H = (Helper (Console) (Clock));;
+  module H = (Internal (Console) (Clock) (Maker));;
   open H;;
   
   let input t udp ~src ~dst ~src_port:_ buf =

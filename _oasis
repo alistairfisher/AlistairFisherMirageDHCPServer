@@ -106,7 +106,7 @@ Library dhcpv4
                       tcpip.udp,
                       core,
                       threads,
-                      mirage-unix,irmin-network-datastores
+                      mirage-unix,irmin-network-datastores,irmin
                       
 Library "tcpip-stack-direct"
   CompiledObject:     best
