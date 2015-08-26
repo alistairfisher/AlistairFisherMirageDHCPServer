@@ -16,6 +16,8 @@ module Test (I:Irmin.S_MAKER) = struct
   module H = Dhcp_serverv4.Internal(C)(Cl)(I)
   open H;;
 
+  let irmin_config = Irmin.Irmin_git.config;;
+
   let client_mac_address = "10:9a:dd:c0:ff:ee";;
   let client_ip_address = Ipaddr.V4.of_string_exn "192.1.1.10";; (*Used in renewals, rebindings and init-reboot tests*)
   let server_ip_address = Ipaddr.V4.of_string_exn "192.1.1.1";; (*Ensure config file agrees*)
@@ -40,26 +42,27 @@ module Test (I:Irmin.S_MAKER) = struct
       static_hosts = reserved_hosts;
     };;
 
-  let make_t (irmin_config:Irmin.config) =
+  let make_t =
     let reserved_hosts1 = ["host1","192.1.1.11"] in
-    Console_unix.connect "console" >>= 
-      fun c ->
-          match c with
-          |`Error _ -> raise (Failure "broken console")
-          |`Ok console ->
-            Lwt.return
-            {c=console;
-            server_subnet = (make_subnet "192.1.1.2" "192.1.1.10" reserved_hosts1);
-            serverIPs = [Ipaddr.V4.of_string_exn "192.1.1.1"];
-            subnets =
-              [make_subnet "192.1.1.2" "192.1.1.10" reserved_hosts1;
-              make_subnet "192.1.2.2" "192.1.2.10" [];
-              make_subnet "192.1.3.2" "192.1.3.10" []];
-            global_parameters = [];
-            addresses = Irmin.create irmin_config (task "Test");
-            irmin_config = irmin_config;
-            node = "Test";
-            };;
+    Console_unix.connect "console" >>=  fun c ->
+    match c with
+    |`Error _ -> raise (Failure "broken console")
+    |`Ok console ->
+    I.create irmin_config (task "Test") >>= fun addresses ->
+    Lwt.return
+      {
+        c=console;
+        server_subnet = (make_subnet "192.1.1.2" "192.1.1.10" reserved_hosts1);
+        serverIPs = [Ipaddr.V4.of_string_exn "192.1.1.1"];
+        subnets =
+          [make_subnet "192.1.1.2" "192.1.1.10" reserved_hosts1;
+          make_subnet "192.1.2.2" "192.1.2.10" [];
+          make_subnet "192.1.3.2" "192.1.3.10" []];
+        global_parameters = [];
+        addresses;
+        irmin_config;
+        node = Table.Path.create ["Test"];
+      };;
 
   let unspecified = Ipaddr.V4.unspecified;;
   let unspecifiedint32 = Int32.of_int 0;;
