@@ -318,7 +318,7 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
               else if (dst = Ipaddr.V4.broadcast) then (*the packet was multicasted, it's a rebinding*)
                 find_address ciaddr t >>= fun address_info ->
                 if (address_info = Lease_state.Active client_identifier) then (*this server is responsible for this.*)
-                  let table = change_address_state ciaddr (Lease_state.Active client_identifier) t lease_length in
+                  change_address_state ciaddr (Lease_state.Active client_identifier) t lease_length >>= fun () ->
                   let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
                   ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
                   Lwt.return (Some (server_construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options));
@@ -358,7 +358,7 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
       let message = "Garbage collection" in
       merge_changes t branch new_table message
     in
-    let cycle = (Time.sleep collection_interval) >>= fun () -> garbage_collect t collection_interval
+    let cycle = ((Time.sleep collection_interval) >>= (fun () -> gc)) >>= (fun () -> garbage_collect t collection_interval)
     in   
     cycle;;
     
