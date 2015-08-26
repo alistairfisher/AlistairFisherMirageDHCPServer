@@ -58,18 +58,6 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
   module I = Irmin.Basic(Maker)(Table)
  
   module Data_structures = struct
-
-    type reserved_address = { (*An address that has been offered to a client, but not yet accepted*)
-      reserved_ip_address: Ipaddr.V4.t;
-      xid: Cstruct.uint32;
-      reservation_timestamp: float;
-    }
-  
-    type lease = {
-      lease_length:int32;
-      lease_timestamp:float;
-      ip_address: Ipaddr.V4.t;
-    }
   
     (*TODO: use client ID to differentiate explicit ID from hardware address, allowing different hardware types.*)    
     type client_identifier = string;; (*According to RFC 2131, this should be the client's hardware address unless an explicit identifier is provided. The RFC states that the ID must be unique
