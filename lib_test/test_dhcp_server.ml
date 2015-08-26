@@ -40,7 +40,7 @@ module Test (I:Irmin.S_MAKER) = struct
       static_hosts = reserved_hosts;
     };;
 
-  let make_t =
+  let make_t (irmin_config:Irmin.config) =
     let reserved_hosts1 = ["host1","192.1.1.11"] in
     Console_unix.connect "console" >>= 
       fun c ->
@@ -56,9 +56,9 @@ module Test (I:Irmin.S_MAKER) = struct
               make_subnet "192.1.2.2" "192.1.2.10" [];
               make_subnet "192.1.3.2" "192.1.3.10" []];
             global_parameters = [];
-            irmin_config;
-            node;
-            addresses;
+            addresses = Irmin.create irmin_config (task "Test");
+            irmin_config = irmin_config;
+            node = "Test";
             };;
 
   let unspecified = Ipaddr.V4.unspecified;;
