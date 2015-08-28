@@ -323,7 +323,7 @@ Executable test
   Custom:             true
   BuildDepends:       alcotest, oUnit, lwt, lwt.unix, io-page.unix,
                       mirage-profile, mirage-flow, mirage-vnetif,
-                      mirage-console.unix, mirage-clock-unix, tcpip.ethif, tcpip.tcp, pcap-format,tcpip.dhcpv4,str,printf,irmin,irmin
+                      mirage-console.unix, mirage-clock-unix, tcpip.ethif, tcpip.tcp, pcap-format,tcpip.dhcpv4,str,printf,irmin
 
 Test test
   Run$:               flag(tests)

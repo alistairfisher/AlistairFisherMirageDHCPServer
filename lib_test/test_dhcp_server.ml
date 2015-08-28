@@ -9,14 +9,13 @@ open Common;;
 open Vnetif_common;;
 open Console;;
 
-module Test (I:Irmin.S_MAKER) = struct
-
   module C = Console_unix
   module Cl = Clock
+  module I = Irmin_mem.Make
   module H = Dhcp_serverv4.Internal(C)(Cl)(I)
   open H;;
 
-  let irmin_config = Irmin.Irmin_git.config;;
+  let irmin_config = Irmin_mem.config();;
 
   let client_mac_address = "10:9a:dd:c0:ff:ee";;
   let client_ip_address = Ipaddr.V4.of_string_exn "192.1.1.10";; (*Used in renewals, rebindings and init-reboot tests*)
@@ -93,7 +92,7 @@ module Test (I:Irmin.S_MAKER) = struct
     let raw_packet = dhcp_packet_builder xid flags ciaddr yiaddr siaddr giaddr options in (*This is a cstruct*)
     let packet = dhcp_packet_of_cstruct raw_packet in
     make_t >>= fun t->
-    let result = parse_packet t ~src:client_ip_address ~dst:dest ~packet:packet in (*the server's response to the packet*)
+    parse_packet t ~src:client_ip_address ~dst:dest ~packet:packet >>= fun result -> (*the server's response to the packet*)
     match result,response_expected with
     |None,false -> Lwt.return_unit (*No packet expected, none received: job done*)
     |None,true -> assert_failure "Response expected, none received"
@@ -270,5 +269,3 @@ module Test (I:Irmin.S_MAKER) = struct
     "Invalid Init reboot is Nak'd",`Quick,incorrect_init_reboot;
     "Renewals are handled correctly",`Quick,renewal_test;
     ];;
-
-end
