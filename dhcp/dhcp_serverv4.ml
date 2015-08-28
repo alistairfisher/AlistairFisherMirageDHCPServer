@@ -204,12 +204,12 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
     let chaddr = packet.chaddr in
     let flags  = packet.flags in
     let packet = packet.options in
-    (*Lwt_list.iter_s (Console.log_s t.c)
-      [ "DHCP response:";
+    Lwt_list.iter_s (Console.log_s t.c)
+      [ "DHCP input:";
         sprintf "input ciaddr %s yiaddr %s" (Ipaddr.V4.to_string ciaddr) (Ipaddr.V4.to_string yiaddr);
-        sprintf "siaddr %s giaddr %s" (Ipaddr.V4.to_string siaddr) (Ipaddr.V4.to_string giaddr);
-        sprintf "chaddr %s sname %s file %s" (chaddr) (copy_dhcp_sname buf) (copy_dhcp_file buf)]
-    >>= fun () ->*)
+        sprintf "flags %d giaddr %s" (flags) (Ipaddr.V4.to_string giaddr);
+        sprintf "chaddr %s" (chaddr)]
+    >>= fun () ->
     try
       let open Dhcpv4_option.Packet in
       let open Data_structures in
@@ -278,7 +278,9 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
               ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
               Lwt.return (Some (server_construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:requested_ip_address ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options));
             )
-            else Lwt.return None; (*either the request is for a different server or the xid doesn't match the server's most recent transaction with that client*)
+            else
+              raise (DHCP_Server_Error "Invalid DHCP Request");(*either the request is for a different server or the xid doesn't match the server's
+                most recent transaction with that client*)
           |None -> (*this is a renewal, rebinding or init_reboot.*)
             if (ciaddr = Ipaddr.V4.unspecified) then (*client in init-reboot*)
               let requested_IP = match find packet (function `Requested_ip ip -> Some ip |_ -> None) with
@@ -333,7 +335,7 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
       with
       |DHCP_Server_Error message ->
         let timestamp = Clock.time() in
-        let error_message = Printf.sprintf "[%f] Dhcp server error: %s" timestamp message in
+        let error_message = Printf.sprintf "[%f] Dhcp server error: %s" timestamp message in (*TODO: print correct timestamp*)
         Console.log t.c error_message;
         Lwt.return None
       |Not_found -> Lwt.return None

@@ -47,7 +47,8 @@ open Console;;
     match c with
     |`Error _ -> raise (Failure "broken console")
     |`Ok console ->
-    I.create irmin_config (task "Test") >>= fun addresses ->
+    I.create irmin_config (task "/Test") >>= fun addresses ->
+    (I.update (addresses "initialise store") ["/Test"] Table.empty) >>= fun () ->
     Lwt.return
       {
         c=console;
@@ -60,7 +61,7 @@ open Console;;
         global_parameters = [];
         addresses;
         irmin_config;
-        node = Table.Path.create ["Test"];
+        node = Table.Path.create ["/Test"];
       };;
 
   let unspecified = Ipaddr.V4.unspecified;;
@@ -213,7 +214,7 @@ open Console;;
     (response_test_case (Ipaddr.V4.of_string_exn "192.1.3.2")) ~xid:(of_int 41) ~flags:0 ~giaddr:gateway_ip_address2 ~response_expected:true
       ~expected_yiaddr:(Ipaddr.V4.of_string_exn "192.1.3.2") >>= fun ()->
     (response_test_case unspecified) ~xid:(of_int 41) ~flags:0 ~giaddr:gateway_ip_address2 ~response_expected:false ~expected_yiaddr:(unspecified);;
-    (*only the last one should receive a response, since when each discover will override the last one*)
+    (*only the first one should receive a response, since the address will be active when the second address goes through*)
 
   let request_incorrect () = (*TODO: missing test case??*)
     let unitise x = () in
