@@ -212,6 +212,7 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
     >>= fun () ->*)
     try
       let open Dhcpv4_option.Packet in
+      let open Data_structures in
       let client_identifier = match find packet (function `Client_id id -> Some id |_ -> None) with (*If a client ID is explcitly provided, use it, else default to using client hardware address for id*)
         |None -> chaddr
         |Some id-> 
