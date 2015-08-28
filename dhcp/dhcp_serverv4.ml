@@ -196,7 +196,7 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
     ~dest:dest_ip_address
   
   (*unwrap DHCP packet, case split depending on the contents*)
-  let parse_packet t ~src ~dst ~packet = (*lots of duplication with client, need to combine into one unit*)
+  let parse_packet (t:t) ~src ~dst ~packet = (*lots of duplication with client, need to combine into one unit*)
     let ciaddr = packet.ciaddr in
     let yiaddr = packet.yiaddr in
     let giaddr = packet.giaddr in
