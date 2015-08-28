@@ -290,6 +290,7 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
               (is_available requested_IP t client_subnet) >>= fun available ->
               if available then (*address is available, lease to client*)
                 (change_address_state requested_IP (Lease_state.Active client_identifier) t lease_length) >>= fun() ->
+                Console.log t.c (Printf.sprintf "Client %s has completed a request for address %s" client_identifier (Ipaddr.V4.to_string requested_IP));
                 let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
                 ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
                 Lwt.return (Some (server_construct_packet t ~xid:xid ~ciaddr:(Ipaddr.V4.unspecified) ~yiaddr:requested_IP ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr
