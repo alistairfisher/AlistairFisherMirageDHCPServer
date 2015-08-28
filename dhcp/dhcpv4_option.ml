@@ -22,27 +22,84 @@ open Printf
    yet. At some point, this should be rewritten to use more of the
    autogen Mpl_stdlib *)
 
-type msg = [  (* Message types, without payloads *)
+type msg = [
   |`Pad
   |`Subnet_mask
   |`Time_offset
   |`Router
-  |`Broadcast
   |`Time_server
   |`Name_server
-  |`DNS_server
-  |`Netbios_name_server
-  |`Host_name
+  |`Dns_server
+  |`Log_server
+  |`Cookie_server
+  |`Lpr_server
+  |`Impress_server
+  |`Rlp_server
+  |`Hostname
+  |`Boot_file_size
+  |`Merit_dump_file
   |`Domain_name
-  |`Requested_ip
-  |`Lease_time
-  |`Message_type
-  |`Server_identifier
-  |`Interface_mtu
-  |`Parameter_request
-  |`Message
-  |`Max_size
-  |`Client_id
+  |`Swap_server
+  |`Root_path
+  |`Extensions_path
+  |`Ip_forwarding
+  |`Non_local_source_routing
+  |`Policy_filter
+  |`Max_datagram_reassembly
+  |`Default_ip_ttl
+  |`Mtu_timeout
+  |`Mtu_plateau
+  |`Mtu_interface
+  |`All_subnets_local
+  |`Broadcast_address
+  |`Mask_discovery
+  |`Mask_supplier
+  |`Router_discovery
+  |`Router_request
+  |`Static_route
+  |`Trailers
+  |`Arp_timeout
+  |`Ethernet
+  |`Default_tcp_ttl
+  |`Keepalive_time
+  |`Keepalive_data
+  |`Nis_domain
+  |`Nis_servers
+  |`Ntp_servers
+  |`Vendor_specific
+  |`Netbios_name_srv
+  |`Netbios_dist_srv
+  |`Netbios_node_type
+  |`Netbios_scope
+  |`X_window_font_server
+  |`X_window_manager
+  |`Requested_ip_address
+  |`Requested_lease
+  |`Option_overload
+  |`Dhcp_msg_type
+  |`Dhcp_server_id
+  |`Parameter_list
+  |`Dhcp_message
+  |`Dhcp_max_msg_size
+  |`Renewal_time
+  |`Rebinding_time
+  |`Vendor_class_id
+  |`Client_identifier
+  |`Netware_domain
+  |`Netware_option
+  |`Nis_domain_name
+  |`Nis_server_addr
+  |`Tftp_server_name
+  |`Bootfile_name
+  |`Mobile_ip_home_agent_addrs
+  |`Smtp_server
+  |`Pop3_server
+  |`Nntp_server
+  |`Www_server
+  |`Finger_server
+  |`Irc_server
+  |`Streettalk_server
+  |`Stda_server
   |`Domain_search (* RFC 3397 *)
   |`End
   |`Unknown of char
@@ -60,57 +117,168 @@ type op = [  (* DHCP operations *)
   |`Unknown of char
 ]
 
-type t = [   (* Full message payloads *)
-  | `Pad
-  | `Subnet_mask of Ipaddr.V4.t
-  | `Time_offset of string
-  | `Router of Ipaddr.V4.t list
-  | `Broadcast of Ipaddr.V4.t
-  | `Time_server of Ipaddr.V4.t list
-  | `Name_server of Ipaddr.V4.t list
-  | `DNS_server of Ipaddr.V4.t list
-  | `Netbios_name_server of Ipaddr.V4.t list
-  | `Host_name of string
-  | `Domain_name of string
-  | `Requested_ip of Ipaddr.V4.t
-  | `Interface_mtu of int
-  | `Lease_time of int32
-  | `Message_type of op
-  | `Server_identifier of Ipaddr.V4.t
-  | `Parameter_request of msg list
-  | `Message of string
-  | `Max_size of int
-  | `Client_id of string
-  | `Domain_search of string (* not full support yet *)
-  | `Unknown of (char * string) (* code * buffer *)
-  | `End
+type t = [
+  |`Pad 
+  |`Subnet_mask of Ipaddr.V4.t (*TODO: use prefix?*)
+  |`Time_offset of string
+  |`Router of Ipaddr.V4.t list
+  |`Time_server of Ipaddr.V4.t list
+  |`Name_server of Ipaddr.V4.t list
+  |`Dns_server of Ipaddr.V4.t list
+  |`Log_server of Ipaddr.V4.t list
+  |`Cookie_server of Ipaddr.V4.t list
+  |`Lpr_server of Ipaddr.V4.t list
+  |`Impress_server of Ipaddr.V4.t list
+  |`Rlp_server of Ipaddr.V4.t list
+  |`Hostname of string
+  |`Boot_file_size of int (*16 bit unsigned*)
+  |`Merit_dump_file of string
+  |`Domain_name of string
+  |`Swap_server of Ipaddr.V4.t
+  |`Root_path of string
+  |`Extensions_path of string
+  |`Ip_forwarding of bool
+  |`Non_local_source_routing of bool
+  |`Policy_filter of (Ipaddr.V4.t * Ipaddr.V4.t) list (*use prefix?*)
+  |`Max_datagram_reassembly of int(*16 bit int*)
+  |`Default_ip_ttl of int (*8 bit int*)
+  |`Mtu_timeout of int32 (*unsigned*)
+  |`Mtu_plateau of int list(*list of 16 bit integers, length >=1*)
+  |`Mtu_interface of int(*16 bit int*)
+  |`All_subnets_local of bool
+  |`Broadcast_address of Ipaddr.V4.t
+  |`Mask_discovery of bool
+  |`Mask_supplier of bool
+  |`Router_discovery of bool
+  |`Router_request of Ipaddr.V4.t
+  |`Static_route of (Ipaddr.V4.t * Ipaddr.V4.t) list list
+  |`Trailers of bool
+  |`Arp_timeout of int32 (*unsigned*)
+  |`Ethernet of bool
+  |`Default_tcp_ttl of int(*8 bit integer*) 
+  |`Keepalive_time of int32 (*unsigned*)
+  |`Keepalive_data of bool
+  |`Nis_domain of string
+  |`Nis_servers of Ipaddr.V4.t list
+  |`Ntp_servers of Ipaddr.V4.t list
+  (*|`Vendor_specific of (*TODO*)*)
+  |`Netbios_name_srv of Ipaddr.V4.t
+  |`Netbios_dist_srv of Ipaddr.V4.t
+  |`Netbios_node_type of int(*8 bit int*)
+  (*|`Netbios_scope of (*TODO*)*)
+  |`X_window_font_server of Ipaddr.V4.t
+  |`X_window_manager of Ipaddr.V4.t
+  |`Requested_ip_address of Ipaddr.V4.t
+  |`Requested_lease of int32 (*unsigned*)
+  |`Option_overload of int(*8 bit int*)
+  |`Dhcp_msg_type of op
+  |`Dhcp_server_id of Ipaddr.V4.t
+  |`Parameter_list of msg list
+  |`Dhcp_message of string
+  |`Dhcp_max_msg_size of int (*16 bit int*)
+  |`Renewal_time of int32 (*unsigned*)
+  |`Rebinding_time of int32 (*unsigned*)
+  (*|`Vendor_class_id of*)
+  |`Client_identifier of string (*TODO: extend to hardware type*hardware address*) 
+  |`Netware_domain of string
+  (*|`Netware_option of (*TODO*)*)
+  |`Nis_domain_name of string
+  |`Nis_server_addr of Ipaddr.V4.t list
+  (*|`Tftp_server_name of*) (*TODO*)
+  (*|`Bootfile_name of *)(*TODO*)
+  |`Mobile_ip_home_agent_addrs of Ipaddr.V4.t list
+  |`Smtp_server of Ipaddr.V4.t list
+  |`Pop3_server of Ipaddr.V4.t list
+  |`Nntp_server of Ipaddr.V4.t list
+  |`Www_server of Ipaddr.V4.t list
+  |`Finger_server of Ipaddr.V4.t list
+  |`Irc_server of Ipaddr.V4.t list
+  |`Streettalk_server of Ipaddr.V4.t list
+  |`Stda_server of Ipaddr.V4.t list
+  |`Domain_search of string
+  |`End
 ]
 
-let msg_to_string (x:msg) =
-  match x with
+let msg_to_string = function
   |`Pad -> "Pad"
-  |`Subnet_mask -> "Subnet mask"
-  |`Broadcast -> "Broadcast"
-  |`Time_offset -> "Time offset"
+  |`Subnet_mask -> "Subnet_mask"
+  |`Time_offset -> "Time_offset"
   |`Router -> "Router"
-  |`Time_server -> "Time server"
-  |`Name_server -> "Name server"
-  |`DNS_server -> "DNS server"
-  |`Host_name -> "Host name"
-  |`Domain_name -> "Domain name"
-  |`Requested_ip -> "Requested IP"
-  |`Lease_time -> "Lease time"
-  |`Message_type -> "Message type"
-  |`Server_identifier -> "Server identifier"
-  |`Parameter_request -> "Parameter request"
-  |`Message -> "Message"
-  |`Interface_mtu -> "Interface MTU"
-  |`Max_size -> "Max size"
-  |`Client_id -> "Client id"
-  |`Domain_search -> "Domain search"
-  |`Netbios_name_server -> "Netbios name server"
-  |`Unknown c -> sprintf "Unknown(%d)" (Char.code c)
-  |`End -> "End"
+  |`Time_server -> "Time_server"
+  |`Name_server -> "Name_server"
+  |`Dns_server -> "Dns_server"
+  |`Log_server -> "Log_server"
+  |`Cookie_server -> "Cookie_server"
+  |`Lpr_server -> "Lpr_server"
+  |`Impress_server -> "Impress_server"
+  |`Rlp_server -> "Rlp_server"
+  |`Hostname -> "Hostname"
+  |`Boot_file_size -> "Boot_file_size"
+  |`Merit_dump_file -> "Merit_dump_file"
+  |`Domain_name -> "Domain_name"
+  |`Swap_server -> "Swap_server"
+  |`Root_path -> "Root_path"
+  |`Extensions_path -> "Extensions_path"
+  |`Ip_forwarding -> "Ip_forwarding"
+  |`Non_local_source_routing -> "Non_local_source_routing"
+  |`Policy_filter -> "Policy_filter"
+  |`Max_datagram_reassembly -> "Max_datagram_reassembly"
+  |`Default_ip_ttl -> "Default_ip_ttl"
+  |`Mtu_timeout -> "Mtu_timeout"
+  |`Mtu_plateau -> "Mtu_plateau"
+  |`Mtu_interface -> "Mtu_interface"
+  |`All_subnets_local -> "All_subnets_local"
+  |`Broadcast_address -> "Broadcast_address"
+  |`Mask_discovery -> "Mask_discovery"
+  |`Mask_supplier -> "Mask_supplier"
+  |`Router_discovery -> "Router_discovery"
+  |`Router_request -> "Router_request"
+  |`Static_route -> "Static_route"
+  |`Trailers -> "Trailers"
+  |`Arp_timeout -> "Arp_timeout"
+  |`Ethernet -> "Ethernet"
+  |`Default_tcp_ttl -> "Default_tcp_ttl"
+  |`Keepalive_time -> "Keepalive_time"
+  |`Keepalive_data -> "Keepalive_data"
+  |`Nis_domain -> "Nis_domain"
+  |`Nis_servers -> "Nis_servers"
+  |`Ntp_servers -> "Ntp_servers"
+  |`Vendor_specific -> "Vendor_specific"
+  |`Netbios_name_srv -> "Netbios_name_srv"
+  |`Netbios_dist_srv -> "Netbios_dist_srv"
+  |`Netbios_node_type -> "Netbios_node_type"
+  |`Netbios_scope -> "Netbios_scope"
+  |`X_window_font_server -> "X_window_font_server"
+  |`X_window_manager -> "X_window_manager"
+  |`Requested_ip_address -> "Requested_ip_address"
+  |`Requested_lease -> "Requested_lease"
+  |`Option_overload -> "Option_overload"
+  |`Dhcp_msg_type -> "Dhcp_msg_type"
+  |`Dhcp_server_id -> "Dhcp_server_id"
+  |`Parameter_list -> "Parameter_list"
+  |`Dhcp_message -> "Dhcp_message"
+  |`Dhcp_max_msg_size -> "Dhcp_max_msg_size"
+  |`Renewal_time -> "Renewal_time"
+  |`Rebinding_time -> "Rebinding_time"
+  |`Vendor_class_id -> "Vendor_class_id"
+  |`Client_identifier -> "Client_identifier"
+  |`Netware_domain -> "Netware_domain"
+  |`Netware_option -> "Netware_option"
+  |`Nis_domain_name -> "Nis_domain_name"
+  |`Nis_server_addr -> "Nis_server_addr"
+  |`Tftp_server_name -> "Tftp_server_name"
+  |`Bootfile_name -> "Bootfile_name"
+  |`Mobile_ip_home_agent_addrs -> "Mobile_ip_home_agent_addrs"
+  |`Smtp_server -> "Smtp_server"
+  |`Pop3_server -> "Pop3_server"
+  |`Nntp_server -> "Nntp_server"
+  |`Www_server -> "Www_server"
+  |`Finger_server -> "Finger_server"
+  |`Irc_server -> "Irc_server"
+  |`Streettalk_server -> "Streettalk_server"
+  |`Stda_server -> "Stda_server"
+  |`Domain_search -> "Domain_search"
+  |`End -> "End";;
 
 let op_to_string (x:op) =
   match x with
@@ -131,29 +299,112 @@ let t_to_string (t:t) =
   let strs s v = sprintf "%s(%s)" s (String.concat "," v) in
   let i32 s v = sprintf "%s(%lu)" s v in
   match t with
-  | `Pad -> "Pad"
-  | `Subnet_mask ip -> ip_one "Subnet mask" ip
-  | `Time_offset _ -> "Time offset"
-  | `Broadcast x -> ip_one "Broadcast" x
-  | `Router ips  -> ip_list "Routers" ips
-  | `Time_server ips -> ip_list "Time servers" ips
-  | `Name_server ips -> ip_list "Name servers" ips
-  | `DNS_server ips -> ip_list "DNS servers" ips
-  | `Host_name s -> str "Host name" s
-  | `Domain_name s -> str "Domain name" s
-  | `Requested_ip ip -> ip_one "Requested ip" ip
-  | `Lease_time tm -> i32 "Lease time" tm
-  | `Message_type op -> str "Message type" (op_to_string op)
-  | `Server_identifier ip -> ip_one "Server identifer" ip
-  | `Parameter_request ps -> strs "Parameter request" (List.map msg_to_string ps)
-  | `Message s -> str "Message" s
-  | `Max_size sz -> str "Max size" (string_of_int sz)
-  | `Interface_mtu sz -> str "Interface MTU" (string_of_int sz)
-  | `Client_id id -> str "Client id" id
-  | `Domain_search d -> str "Domain search" d
-  | `Netbios_name_server d -> ip_list "NetBIOS name server" d
-  | `Unknown (c,x) -> sprintf "Unknown(%d[%d])" (Char.code c) (Bytes.length x)
-  | `End -> "End"
+  |`Pad -> "Pad"
+  |`Subnet_mask ip -> ip_one "Subnet mask" ip
+  |`Time_offset _ -> "Time offset"
+  |`Broadcast_address x -> ip_one "Broadcast" x
+  |`Router ips  -> ip_list "Routers" ips
+  |`Time_server ips -> ip_list "Time servers" ips
+  |`Name_server ips -> ip_list "Name servers" ips
+  |`Dns_server ips -> ip_list "DNS servers" ips
+  |`Hostname s -> str "Host name" s
+  |`Domain_name s -> str "Domain name" s
+  |`Requested_ip_address ip -> ip_one "Requested ip" ip
+  |`Requested_lease tm -> i32 "Lease time" tm
+  |`Dhcp_msg_type op -> str "Message type" (op_to_string op)
+  |`Dhcp_server_id ip -> ip_one "Server identifer" ip
+  |`Parameter_list ps -> strs "Parameter request" (List.map msg_to_string ps)
+  |`Dhcp_message s -> str "Message" s
+  |`Dhcp_max_msg_size sz -> str "Max size" (string_of_int sz)
+  |`Mtu_interface sz -> str "Interface MTU" (string_of_int sz)
+  |`Client_identifier id -> str "Client id" id
+  |`Domain_search d -> str "Domain search" d
+  |`Netbios_name_srv d -> ip_list "NetBIOS name server" d
+  |`Unknown (c,x) -> sprintf "Unknown(%d[%d])" (Char.code c) (Bytes.length x)
+  |`End -> "End"
+
+
+  let t_equal_to_msg t msg =
+    match t,msg with
+    |`Pad,`Pad -> true
+    |`Subnet_mask _,`Subnet_mask -> true
+    |`Time_offset _,`Time_offset -> true
+    |`Router _,`Router -> true
+    |`Time_server _,`Time_server -> true
+    |`Name_server _,`Name_server -> true
+    |`Dns_server _,`Dns_server -> true
+    |`Log_server _,`Log_server -> true
+    |`Cookie_server _,`Cookie_server -> true
+    |`Lpr_server _,`Lpr_server -> true
+    |`Impress_server _,`Impress_server -> true
+    |`Rlp_server _,`Rlp_server -> true
+    |`Hostname _,`Hostname -> true
+    |`Boot_file_size _,`Boot_file_size -> true
+    |`Merit_dump_file _,`Merit_dump_file -> true
+    |`Domain_name _,`Domain_name -> true
+    |`Swap_server _,`Swap_server -> true
+    |`Root_path _,`Root_path -> true
+    |`Extensions_path _,`Extensions_path -> true
+    |`Ip_forwarding _,`Ip_forwarding -> true
+    |`Non_local_source_routing _,`Non_local_source_routing -> true
+    |`Policy_filter _,`Policy_filter -> true
+    |`Max_datagram_reassembly _,`Max_datagram_reassembly -> true
+    |`Default_ip_ttl _,`Default_ip_ttl -> true
+    |`Mtu_timeout _,`Mtu_timeout -> true
+    |`Mtu_plateau _,`Mtu_plateau -> true
+    |`Mtu_interface _,`Mtu_interface -> true
+    |`Mtu_subnet _,`Mtu_subnet -> true
+    |`Broadcast_address _,`Broadcast_address -> true
+    |`Mask_discovery _,`Mask_discovery -> true
+    |`Mask_supplier _,`Mask_supplier -> true
+    |`Router_discovery _,`Router_discovery -> true
+    |`Router_request _,`Router_request -> true
+    |`Static_route _,`Static_route -> true
+    |`Trailers _,`Trailers -> true
+    |`Arp_timeout _,`Arp_timeout -> true
+    |`Ethernet _,`Ethernet -> true
+    |`Default_tcp_ttl _,`Default_tcp_ttl -> true
+    |`Keepalive_time _,`Keepalive_time -> true
+    |`Keepalive_data _,`Keepalive_data -> true
+    |`Nis_domain _,`Nis_domain -> true
+    |`Nis_servers _,`Nis_servers -> true
+    |`Ntp_servers _,`Ntp_servers -> true
+    |`Vendor_specific _,`Vendor_specific -> true
+    |`Netbios_name_srv _,`Netbios_name_srv -> true
+    |`Netbios_dist_srv _,`Netbios_dist_srv -> true
+    |`Netbios_node_type _,`Netbios_node_type -> true
+    |`Netbios_scope _,`Netbios_scope -> true
+    |`X_window_font _,`X_window_font -> true
+    |`X_window_manager _,`X_window_manager -> true
+    |`Requested_ip_address _,`Requested_ip_address -> true
+    |`Requested_lease _,`Requested_lease -> true
+    |`Option_overload _,`Option_overload -> true
+    |`Dhcp_msg_type _,`Dhcp_msg_type -> true
+    |`Dhcp_server_id _,`Dhcp_server_id -> true
+    |`Parameter_list _,`Parameter_list -> true
+    |`Dhcp_message _,`Dhcp_message -> true
+    |`Dhcp_max_msg_size _,`Dhcp_max_msg_size -> true
+    |`Renewal_time _,`Renewal_time -> true
+    |`Rebinding_time _,`Rebinding_time -> true
+    |`Vendor_class_id _,`Vendor_class_id -> true
+    |`Client_identifier _,`Client_identifier -> true
+    |`Netware_domain _,`Netware_domain -> true
+    |`Netware_option _,`Netware_option -> true
+    |`Nis_domain_name _,`Nis_domain_name -> true
+    |`Nis_server_addr _,`Nis_server_addr -> true
+    |`Tftp_server_name _,`Tftp_server_name -> true
+    |`Bootfile_name _,`Bootfile_name -> true
+    |`Mobile_ip_home_agent_addrs _,`Mobile_ip_home_agent_addrs -> true
+    |`Smtp_server _,`Smtp_server -> true
+    |`Pop3_server _,`Pop3_server -> true
+    |`Nntp_server _,`Nntp_server -> true
+    |`Www_server _,`Www_server -> true
+    |`Finger_server _,`Finger_server -> true
+    |`Irc_server _,`Irc_server -> true
+    |`Streettalk_server _,`Streettalk_server -> true
+    |`Stda_server _,`Stda_server -> true
+    |`End,`End -> true
+    |_ -> false
 
 let ipv4_addr_of_bytes x =
   let open Int32 in
@@ -162,6 +413,7 @@ let ipv4_addr_of_bytes x =
   Ipaddr.V4.of_int32 r
 
 module Marshal = struct
+  
   let t_to_code (x:msg) =
     match x with
     |`Pad -> 0
@@ -170,23 +422,79 @@ module Marshal = struct
     |`Router -> 3
     |`Time_server -> 4
     |`Name_server -> 5
-    |`DNS_server -> 6
-    |`Host_name -> 12
+    |`Dns_server -> 6
+    |`Log_server -> 7
+    |`Cookie_server -> 8
+    |`Lpr_server -> 9
+    |`Impress_server -> 10
+    |`Rlp_server -> 11
+    |`Hostname -> 12
+    |`Boot_file_size -> 13
+    |`Merit_dump_file -> 14
     |`Domain_name -> 15
-    |`Interface_mtu -> 26
-    |`Broadcast -> 28
-    |`Netbios_name_server -> 44
-    |`Requested_ip -> 50
-    |`Lease_time -> 51
-    |`Message_type -> 53
-    |`Server_identifier -> 54
-    |`Parameter_request -> 55
-    |`Message -> 56
-    |`Max_size -> 57
-    |`Client_id -> 61
+    |`Swap_server -> 16
+    |`Root_path -> 17
+    |`Extensions_path -> 18
+    |`Ip_forwarding -> 19
+    |`Non_local_source_routing -> 20
+    |`Policy_filter -> 21
+    |`Max_datagram_reassembly -> 22
+    |`Default_ip_ttl -> 23
+    |`Mtu_timeout -> 24
+    |`Mtu_plateau -> 25
+    |`Mtu_interface -> 26
+    |`All_subnets_local -> 27
+    |`Broadcast_address -> 28
+    |`Mask_discovery -> 29
+    |`Mask_supplier -> 30
+    |`Router_discovery -> 31
+    |`Router_request -> 32
+    |`Static_route -> 33
+    |`Trailers -> 34
+    |`Arp_timeout -> 35
+    |`Ethernet -> 36
+    |`Default_tcp_ttl -> 37
+    |`Keepalive_time -> 38
+    |`Keepalive_data -> 39
+    |`Nis_domain -> 40
+    |`Nis_servers -> 41
+    |`Ntp_servers -> 42
+    |`Vendor_specific -> 43
+    |`Netbios_name_srv -> 44
+    |`Netbios_dist_srv -> 45
+    |`Netbios_node_type -> 46
+    |`Netbios_scope -> 47
+    |`X_window_font_server -> 48
+    |`X_window_manager -> 49
+    |`Requested_ip_address -> 50
+    |`Requested_lease -> 51
+    |`Option_overload -> 52
+    |`Dhcp_msg_type -> 53
+    |`Dhcp_server_id -> 54
+    |`Parameter_list -> 55
+    |`Dhcp_message -> 56
+    |`Dhcp_max_msg_size -> 57
+    |`Renewal_time -> 58
+    |`Rebinding_time -> 59
+    |`Vendor_class_id -> 60
+    |`Client_identifier -> 61
+    |`Netware_domain -> 62
+    |`Netware_option -> 63
+    |`Nis_domain_name -> 64
+    |`Nis_server_addr -> 65
+    |`Tftp_server_name -> 66
+    |`Bootfile_name -> 67
+    |`Mobile_ip_home_agent_addrs -> 68
+    |`Smtp_server -> 69
+    |`Pop3_server -> 70
+    |`Nntp_server -> 71
+    |`Www_server -> 72
+    |`Finger_server -> 73
+    |`Irc_server -> 74
+    |`Streettalk_server -> 75
+    |`Stda_server -> 76
     |`Domain_search -> 119
-    |`End -> 255
-    |`Unknown c -> Char.code c
+    |`End -> 255;;
 
   let to_byte x = Bytes.make 1 (Char.chr (t_to_code x))
 
@@ -277,20 +585,77 @@ module Unmarshal = struct
     |'\003' -> `Router
     |'\004' -> `Time_server
     |'\005' -> `Name_server
-    |'\006' -> `DNS_server
-    |'\012' -> `Host_name
+    |'\006' -> `Dns_server
+    |'\007' -> `Log_server
+    |'\008' -> `Cookie_server
+    |'\009' -> `Lpr_server
+    |'\010' -> `Impress_server
+    |'\011' -> `Rlp_server
+    |'\012' -> `Hostname
+    |'\013' -> `Boot_file_size
+    |'\014' -> `Merit_dump_file
     |'\015' -> `Domain_name
-    |'\026' -> `Interface_mtu
-    |'\028' -> `Broadcast
-    |'\044' -> `Netbios_name_server
-    |'\050' -> `Requested_ip
-    |'\051' -> `Lease_time
-    |'\053' -> `Message_type
-    |'\054' -> `Server_identifier
-    |'\055' -> `Parameter_request
-    |'\056' -> `Message
-    |'\057' -> `Max_size
-    |'\061' -> `Client_id
+    |'\016' -> `Swap_server
+    |'\017' -> `Root_path
+    |'\018' -> `Extensions_path
+    |'\019' -> `Ip_forwarding
+    |'\020' -> `Non_local_source_routing
+    |'\021' -> `Policy_filter
+    |'\022' -> `Max_datagram_reassembly
+    |'\023' -> `Default_ip_ttl
+    |'\024' -> `Mtu_timeout
+    |'\025' -> `Mtu_plateau
+    |'\026' -> `Mtu_interface
+    |'\027' -> `All_subnets_local
+    |'\028' -> `Broadcast_address
+    |'\029' -> `Mask_discovery
+    |'\030' -> `Mask_supplier
+    |'\031' -> `Router_discovery
+    |'\032' -> `Router_request
+    |'\033' -> `Static_route
+    |'\034' -> `Trailers
+    |'\035' -> `Arp_timeout
+    |'\036' -> `Ethernet
+    |'\037' -> `Default_tcp_ttl
+    |'\038' -> `Keepalive_time
+    |'\039' -> `Keepalive_data
+    |'\040' -> `Nis_domain
+    |'\041' -> `Nis_servers
+    |'\042' -> `Ntp_servers
+    |'\043' -> `Vendor_specific
+    |'\044' -> `Netbios_name_srv
+    |'\045' -> `Netbios_dist_srv
+    |'\046' -> `Netbios_node_type
+    |'\047' -> `Netbios_scope
+    |'\048' -> `X_window_font_server
+    |'\049' -> `X_window_manager
+    |'\050' -> `Requested_ip_address
+    |'\051' -> `Requested_lease
+    |'\052' -> `Option_overload
+    |'\053' -> `Dhcp_msg_type
+    |'\054' -> `Dhcp_server_id
+    |'\055' -> `Parameter_list
+    |'\056' -> `Dhcp_message
+    |'\057' -> `Dhcp_max_msg_size
+    |'\058' -> `Renewal_time
+    |'\059' -> `Rebinding_time
+    |'\060' -> `Vendor_class_id
+    |'\061' -> `Client_identifier
+    |'\062' -> `Netware_domain
+    |'\063' -> `Netware_option
+    |'\064' -> `Nis_domain_name
+    |'\065' -> `Nis_server_addr
+    |'\066' -> `Tftp_server_name
+    |'\067' -> `Bootfile_name
+    |'\068' -> `Mobile_ip_home_agent_addrs
+    |'\069' -> `Smtp_server
+    |'\070' -> `Pop3_server
+    |'\071' -> `Nntp_server
+    |'\072' -> `Www_server
+    |'\073' -> `Finger_server
+    |'\074' -> `Irc_server
+    |'\075' -> `Streettalk_server
+    |'\076' -> `Stda_server
     |'\119' -> `Domain_search
     |'\255' -> `End
     |x -> `Unknown x
