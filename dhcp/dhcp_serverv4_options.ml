@@ -19,19 +19,19 @@ let t_equalto_msg t msg = (*options in general need a better implementation, fun
   |`Subnet_mask _,`Subnet_mask -> true
   |`Time_offset _,`Time_offset-> true
   |`Router _,`Router ->true
-  |`Broadcast _,`Broadcast -> true
+  |`Broadcast_address _,`Broadcast_address -> true
   |`Time_server _,`Time_server -> true
   |`Name_server _,`Name_server -> true
-  |`DNS_server _,`DNS_server -> true
+  |`Dns_server _,`Dns_server -> true
   |`Netbios_name_server _,`Netbios_name_server -> true
-  |`Host_name _,`Host_name -> true
+  |`Hostname _,`Hostname -> true
   |`Domain_name _,`Domain_name -> true
   |`Message_type _,`Message_type -> true
   |`Server_identifier _,`Server_identifier-> true
-  |`Interface_mtu _,`Interface_mtu -> true
+  |`Mtu_interface _,`Mtu_interface -> true
   |`Message _,`Message -> true
   |`Max_size _,`Max_size -> true
-  |`Client_id _,`Client_id -> true
+  |`Client_identifier _,`Client_identifier -> true
   |`Domain_search _,`Domain_search -> true
   |_ -> false
 
@@ -57,7 +57,7 @@ let rec parameter_request c_requests s_parameters g_parameters = match c_request
 
 let filter_client_requests c = (*certain requests are filtered, either because no direct response is intended (End, Pad, Parameter request, Requested_ip, lease length) or
   the direct response is provided elswhere (subnet mask) since it must be provided before routers*)
-  let filter x = (x<>`Subnet_mask) && (x<>`Pad) && (x<>`End) && (x<>`Lease_time) && (x<>`Parameter_request) && (x<>`Requested_ip) in
+  let filter x = (x<>`Subnet_mask) && (x<>`Pad) && (x<>`End) && (x<>`Requested_lease) && (x<>`Parameter_request) && (x<>`Requested_ip_address) in
 (*TODO: remove duplicates from client requests, this is necessary*)
   List.filter filter c;;
     
@@ -74,4 +74,4 @@ let make_options_without_lease ~client_requests ~subnet_parameters ~global_param
 
 let make_options_with_lease ~client_requests ~subnet_parameters ~global_parameters ~serverIP ~lease_length ~message_type =
   let options = make_options_without_lease client_requests subnet_parameters global_parameters serverIP message_type in
-  {op = options.op;opts = ((`Lease_time lease_length) :: options.opts)};;
+  {op = options.op;opts = ((`Requested_lease lease_length) :: options.opts)};;

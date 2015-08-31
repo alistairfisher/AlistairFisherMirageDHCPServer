@@ -139,7 +139,7 @@ open Console;;
   let offer_options_test options = (*tests for the options received from the server*)
   (*In offer messages, expect a server identifier and lease time*)
     assert_equal options.op `Offer;
-    match find options (function `Lease_time offered_lease -> Some offered_lease |_ -> None) with
+    match find options (function `Requested_lease offered_lease -> Some offered_lease |_ -> None) with
     |None -> assert_failure "No offered lease length"
     |Some _->
       match find options (function `Server_identifier id -> Some id |_ -> None) with
@@ -172,7 +172,7 @@ open Console;;
 
   let add_client_id id options =
     let opts = options.opts in
-    let new_opts = (`Client_id id)::opts in
+    let new_opts = (`Client_identifier id)::opts in
     {op = options.op;opts=new_opts};;
 
   let static_host_test () =
@@ -184,14 +184,14 @@ open Console;;
   (*TEST DHCPREQUEST RESPONSES*)    
 
   let request_options_without_serverID = {op=`Request;opts=[]};; (*Used in rebinding and renewing*)
-  let request_options_with_serverID requested_ip = {op=`Request;opts=[`Server_identifier server_ip_address;`Requested_ip requested_ip]};; (*Used in all other (valid) requests*)
-  let request_options_with_requested_address address = {op=`Request;opts=[`Requested_ip address]};; (*Used in init_reboot*)
+  let request_options_with_serverID requested_ip = {op=`Request;opts=[`Server_identifier server_ip_address;`Requested_ip_address requested_ip]};; (*Used in all other (valid) requests*)
+  let request_options_with_requested_address address = {op=`Request;opts=[`Requested_ip_address address]};; (*Used in init_reboot*)
 
   let ack_options_test options =
   (*In ack messages, expect a server identifier and lease time*)
     let open Dhcpv4_option.Packet in
     assert_equal options.op `Ack;
-    match find options (function `Lease_time offered_lease -> Some offered_lease |_ -> None) with
+    match find options (function `Requested_lease offered_lease -> Some offered_lease |_ -> None) with
     |None -> assert_failure "No offered lease length -> fail"
     |Some _->
       match find options (function `Server_identifier id -> Some id |_ -> None) with

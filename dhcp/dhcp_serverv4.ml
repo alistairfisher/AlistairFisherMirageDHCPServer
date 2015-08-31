@@ -213,7 +213,7 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
     try
       let open Dhcpv4_option.Packet in
       let open Data_structures in
-      let client_identifier = match find packet (function `Client_id id -> Some id |_ -> None) with (*If a client ID is explcitly provided, use it, else default to using client hardware address for id*)
+      let client_identifier = match find packet (function `Client_identifier id -> Some id |_ -> None) with (*If a client ID is explcitly provided, use it, else default to using client hardware address for id*)
         |None -> chaddr
         |Some id-> 
           id
@@ -224,7 +224,7 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
           else find_subnet src (t.subnets) (*else unicasted, can use source address to find subnets*)
         else find_subnet giaddr (t.subnets) (*the client is not on the same subnet, the packet has travelled via a BOOTP relay (with address giaddr). Use the subnet that contains the relay*)     
       in
-      let lease_length = match find packet (function `Lease_time requested_lease -> Some requested_lease |_ -> None) with
+      let lease_length = match find packet (function `Requested_lease requested_lease -> Some requested_lease |_ -> None) with
         |None -> client_subnet.default_lease_length
         |Some requested_lease-> Int32.of_int(min (Int32.to_int requested_lease) (Int32.to_int (client_subnet.max_lease_length)))
       in
@@ -242,7 +242,7 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
           Console.log t.c (Printf.sprintf "Allocating static address %s to host %s" (Ipaddr.V4.to_string address) client_identifier);
           Lwt.return address
         |None -> (*choose reserved_address*)
-          match find packet (function `Requested_ip requested_address -> Some requested_address | _ -> None) with (*check whether the client has requested a specific address, and if possible reserve it for them*)
+          match find packet (function `Requested_ip_address requested_address -> Some requested_address | _ -> None) with (*check whether the client has requested a specific address, and if possible reserve it for them*)
           |None->
             first_address t client_subnet >>= fun reservation ->
             Console.log t.c (Printf.sprintf "No requested address from client %s, allocating address %s" client_identifier (Ipaddr.V4.to_string reservation));
@@ -267,7 +267,7 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
       |`Request ->
         (match (find packet(function `Server_identifier id ->Some id |_ -> None)) with
           |Some server_identifier -> (*This is a response to an offer*)
-            let requested_ip_address = match find packet (function `Requested_ip ip -> Some ip |_ -> None) with
+            let requested_ip_address = match find packet (function `Requested_ip_address ip -> Some ip |_ -> None) with
               |None -> raise (DHCP_Server_Error (Printf.sprintf "DHCP Request -  Select with no requested IP from client %s" client_identifier))
               |Some ip_address -> ip_address
             in
@@ -288,7 +288,7 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
                 (*either the request is for a different server or the xid doesn't match the server's most recent transaction with that client*)
           |None -> (*this is a renewal, rebinding or init_reboot.*)
             if (ciaddr = Ipaddr.V4.unspecified) then (*client in init-reboot*)
-              let requested_IP = match find packet (function `Requested_ip ip -> Some ip |_ -> None) with
+              let requested_IP = match find packet (function `Requested_ip_address ip -> Some ip |_ -> None) with
                 |None -> raise (DHCP_Server_Error (Printf.sprintf "init-reboot with no requested IP from client %s" client_identifier))
                 |Some ip_address -> ip_address
               in
@@ -329,7 +329,7 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
               else Lwt.return None
             )
       |`Decline -> (*This means that the client has discovered that the offered IP address is in use, the server responds by reserving the address until a client explicitly releases it*)
-        (match find packet (function `Requested_ip ip -> Some ip |_ -> None) with
+        (match find packet (function `Requested_ip_address ip -> Some ip |_ -> None) with
           |None ->
             Console.log t.c (Printf.sprintf "Invalid decline from client %s : no address given" client_identifier);
             Lwt.return None
