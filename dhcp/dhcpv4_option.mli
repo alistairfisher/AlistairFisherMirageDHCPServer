@@ -69,11 +69,11 @@ type msg = [
   |`Requested_ip_address
   |`Requested_lease
   |`Option_overload
-  |`Dhcp_msg_type
-  |`Dhcp_server_id
+  |`Message_type
+  |`Server_identifier
   |`Parameter_request
-  |`Dhcp_message
-  |`Dhcp_max_msg_size
+  |`Message
+  |`Max_size
   |`Renewal_time
   |`Rebinding_time
   |`Vendor_class_id
@@ -162,11 +162,11 @@ type t = [
   |`Requested_ip_address of Ipaddr.V4.t
   |`Requested_lease of int32 (*unsigned*)
   |`Option_overload of int(*8 bit int*)
-  |`Dhcp_msg_type of op
-  |`Dhcp_server_id of Ipaddr.V4.t
+  |`Message_type of op
+  |`Server_identifier of Ipaddr.V4.t
   |`Parameter_request of msg list
-  |`Dhcp_message of string
-  |`Dhcp_max_msg_size of int (*16 bit int*)
+  |`Message of string
+  |`Max_size of int (*16 bit int*)
   |`Renewal_time of int32 (*unsigned*)
   |`Rebinding_time of int32 (*unsigned*)
   (*|`Vendor_class_id of*)

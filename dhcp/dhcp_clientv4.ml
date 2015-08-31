@@ -122,7 +122,7 @@ module Make (Console : V1_LWT.CONSOLE)
             let gateways = findl packet
                 (function `Router addrs -> Some addrs |_ -> None) in
             let dns = findl packet
-                (function `DNS_server addrs -> Some addrs |_ -> None) in
+                (function `Dns_server addrs -> Some addrs |_ -> None) in
             let lease = 0l in
             let offer = { ip_addr=yiaddr; netmask; gateways; dns; lease; xid } in
             (* RFC2131 defines the 'siaddr' as the address of the server which
@@ -134,7 +134,7 @@ module Make (Console : V1_LWT.CONSOLE)
             let server_identifier = find packet
                 (function `Server_identifier addr -> Some addr | _ -> None) in
             let options = { op=`Request;
-                            opts= `Requested_ip yiaddr :: (
+                            opts= `Requested_ip_address yiaddr :: (
                               match server_identifier with
                               | Some x -> [ `Server_identifier x ]
                               | None -> [])
@@ -150,7 +150,7 @@ module Make (Console : V1_LWT.CONSOLE)
         match packet.op, xid with
         |`Ack, ack_xid when ack_xid = info.xid -> begin
             let lease =
-              match find packet (function `Lease_time lt -> Some lt |_ -> None) with
+              match find packet (function `Requested_lease lt -> Some lt |_ -> None) with
               | None -> 300l (* Just leg it and assume a lease time of 5 minutes *)
               | Some x -> x in
             let info = { info with lease=lease } in
@@ -172,8 +172,8 @@ module Make (Console : V1_LWT.CONSOLE)
     let yiaddr = Ipaddr.V4.any in
     let siaddr = Ipaddr.V4.any in
     let options = { Dhcpv4_option.Packet.op=`Discover; opts= [
-        (`Parameter_request [`Subnet_mask; `Router; `DNS_server; `Broadcast]);
-        (`Host_name "miragevm")
+        (`Parameter_request [`Subnet_mask; `Router; `Dns_server; `Broadcast_address]);
+        (`Hostname "miragevm")
       ] } in
     Console.log_s t.c (sprintf "DHCP: start discovery\n%!")
     >>= fun () ->

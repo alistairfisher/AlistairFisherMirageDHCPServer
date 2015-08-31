@@ -76,11 +76,11 @@ type msg = [
   |`Requested_ip_address
   |`Requested_lease
   |`Option_overload
-  |`Dhcp_msg_type
-  |`Dhcp_server_id
+  |`Message_type
+  |`Server_identifier
   |`Parameter_request
-  |`Dhcp_message
-  |`Dhcp_max_msg_size
+  |`Message
+  |`Max_size
   |`Renewal_time
   |`Rebinding_time
   |`Vendor_class_id
@@ -171,11 +171,11 @@ type t = [
   |`Requested_ip_address of Ipaddr.V4.t
   |`Requested_lease of int32 (*unsigned*)
   |`Option_overload of int(*8 bit int*)
-  |`Dhcp_msg_type of op
-  |`Dhcp_server_id of Ipaddr.V4.t
+  |`Message_type of op
+  |`Server_identifier of Ipaddr.V4.t
   |`Parameter_request of msg list
-  |`Dhcp_message of string
-  |`Dhcp_max_msg_size of int (*16 bit int*)
+  |`Message of string
+  |`Max_size of int (*16 bit int*)
   |`Renewal_time of int32 (*unsigned*)
   |`Rebinding_time of int32 (*unsigned*)
   (*|`Vendor_class_id of*)
@@ -254,11 +254,11 @@ let msg_to_string = function
   |`Requested_ip_address -> "Requested_ip_address"
   |`Requested_lease -> "Requested_lease"
   |`Option_overload -> "Option_overload"
-  |`Dhcp_msg_type -> "Dhcp_msg_type"
-  |`Dhcp_server_id -> "Dhcp_server_id"
+  |`Message_type -> "Message_type"
+  |`Server_identifier -> "Server_identifier"
   |`Parameter_request -> "Parameter_request"
-  |`Dhcp_message -> "Dhcp_message"
-  |`Dhcp_max_msg_size -> "Dhcp_max_msg_size"
+  |`Message -> "Message"
+  |`Max_size -> "Max_size"
   |`Renewal_time -> "Renewal_time"
   |`Rebinding_time -> "Rebinding_time"
   |`Vendor_class_id -> "Vendor_class_id"
@@ -313,11 +313,11 @@ let t_to_string (t:t) =
   |`Domain_name s -> str "Domain name" s
   |`Requested_ip_address ip -> ip_one "Requested ip" ip
   |`Requested_lease tm -> i32 "Lease time" tm
-  |`Dhcp_msg_type op -> str "Dhcp_message type" (op_to_string op)
-  |`Dhcp_server_id ip -> ip_one "Server identifer" ip
+  |`Message_type op -> str "Message type" (op_to_string op)
+  |`Server_identifier ip -> ip_one "Server identifer" ip
   |`Parameter_request ps -> strs "Parameter request" (List.map msg_to_string ps)
-  |`Dhcp_message s -> str "Message" s
-  |`Dhcp_max_msg_size sz -> str "Max size" (string_of_int sz)
+  |`Message s -> str "Message" s
+  |`Max_size sz -> str "Max size" (string_of_int sz)
   |`Mtu_interface sz -> str "Interface MTU" (string_of_int sz)
   |`Client_identifier id -> str "Client id" id
   |`Domain_search d -> str "Domain search" d
@@ -381,11 +381,11 @@ let t_to_string (t:t) =
     |`Requested_ip_address _,`Requested_ip_address -> true
     |`Requested_lease _,`Requested_lease -> true
     |`Option_overload _,`Option_overload -> true
-    |`Dhcp_msg_type _,`Dhcp_msg_type -> true
-    |`Dhcp_server_id _,`Dhcp_server_id -> true
+    |`Message_type _,`Message_type -> true
+    |`Server_identifier _,`Server_identifier -> true
     |`Parameter_request _,`Parameter_request -> true
-    |`Dhcp_message _,`Dhcp_message -> true
-    |`Dhcp_max_msg_size _,`Dhcp_max_msg_size -> true
+    |`Message _,`Message -> true
+    |`Max_size _,`Max_size -> true
     |`Renewal_time _,`Renewal_time -> true
     |`Rebinding_time _,`Rebinding_time -> true
     |`Vendor_class_id _,`Vendor_class_id -> true
@@ -471,11 +471,11 @@ module Marshal = struct
     |`Requested_ip_address -> 50
     |`Requested_lease -> 51
     |`Option_overload -> 52
-    |`Dhcp_msg_type -> 53
-    |`Dhcp_server_id -> 54
+    |`Message_type -> 53
+    |`Server_identifier -> 54
     |`Parameter_request -> 55
-    |`Dhcp_message -> 56
-    |`Dhcp_max_msg_size -> 57
+    |`Message -> 56
+    |`Max_size -> 57
     |`Renewal_time -> 58
     |`Rebinding_time -> 59
     |`Vendor_class_id -> 60
@@ -539,10 +539,10 @@ module Marshal = struct
       |`Domain_name n -> str `Domain_name n
       |`Requested_ip_address ip -> ip_one `Requested_ip_address ip
       |`Requested_lease t -> uint32 `Requested_lease t
-      |`Dhcp_message x -> str `Dhcp_message x
-      |`Dhcp_max_msg_size s -> uint16 `Dhcp_max_msg_size s
+      |`Message x -> str `Message x
+      |`Max_size s -> uint16 `Max_size s
       |`Mtu_interface s -> uint16 `Mtu_interface s
-      |`Dhcp_msg_type mtype ->
+      |`Message_type mtype ->
         let mcode = function
           |`Discover -> "\001"
           |`Offer -> "\002"
@@ -553,8 +553,8 @@ module Marshal = struct
           |`Release -> "\007"
           |`Inform -> "\008"
           |`Unknown x -> Bytes.make 1 x in
-        to_byte `Dhcp_msg_type :: "\001" :: [mcode mtype]
-      |`Dhcp_server_id id -> ip_one `Dhcp_server_id id
+        to_byte `Message_type :: "\001" :: [mcode mtype]
+      |`Server_identifier id -> ip_one `Server_identifier id
       |`Parameter_request ps ->
         to_byte `Parameter_request :: (size (List.length ps)) ::
         List.map to_byte ps
@@ -569,7 +569,7 @@ module Marshal = struct
 
   let options mtype xs =
     let buf = Bytes.make 312 '\000' in
-    let p = Bytes.concat "" (List.map to_bytes (`Dhcp_msg_type mtype :: xs @ [`End])) in
+    let p = Bytes.concat "" (List.map to_bytes (`Message_type mtype :: xs @ [`End])) in
     (* DHCP packets have minimum length, hence the blit into buf *)
     Bytes.blit p 0 buf 0 (Bytes.length p);
     buf
@@ -634,11 +634,11 @@ module Unmarshal = struct
     |'\050' -> `Requested_ip_address
     |'\051' -> `Requested_lease
     |'\052' -> `Option_overload
-    |'\053' -> `Dhcp_msg_type
-    |'\054' -> `Dhcp_server_id
+    |'\053' -> `Message_type
+    |'\054' -> `Server_identifier
     |'\055' -> `Parameter_request
-    |'\056' -> `Dhcp_message
-    |'\057' -> `Dhcp_max_msg_size
+    |'\056' -> `Message
+    |'\057' -> `Max_size
     |'\058' -> `Renewal_time
     |'\059' -> `Rebinding_time
     |'\060' -> `Vendor_class_id
@@ -716,12 +716,12 @@ module Unmarshal = struct
       |`Hostname -> cont (`Hostname (slice (getint ())))
       |`Domain_name -> cont (`Domain_name (slice (getint ())))
       |`Requested_ip_address -> cont (`Requested_ip_address (get_addr ipv4_addr_of_bytes))
-      |`Dhcp_server_id -> cont (`Dhcp_server_id (get_addr ipv4_addr_of_bytes))
+      |`Server_identifier -> cont (`Server_identifier (get_addr ipv4_addr_of_bytes))
       |`Requested_lease -> cont (`Requested_lease (get_addr uint32_of_bytes))
       |`Domain_search -> cont (`Domain_search (slice (getint())))
       |`Netbios_name_server -> cont (`Netbios_name_server (get_addrs ipv4_addr_of_bytes))
-      |`Dhcp_message -> cont (`Dhcp_message (slice (getint ())))
-      |`Dhcp_msg_type ->
+      |`Message -> cont (`Message (slice (getint ())))
+      |`Message_type ->
         check '\001';
         let mcode = match (getc ()) with
           |'\001' -> `Discover
@@ -733,7 +733,7 @@ module Unmarshal = struct
           |'\007' -> `Release
           |'\008'  -> `Inform
           |x -> `Unknown x in
-        cont (`Dhcp_msg_type mcode)
+        cont (`Message_type mcode)
       |`Parameter_request ->
         let len = getint () in
         let params = ref [] in
@@ -741,9 +741,9 @@ module Unmarshal = struct
           params := (msg_of_code (getc ())) :: !params
         done;
         cont (`Parameter_request (List.rev !params))
-      |`Dhcp_max_msg_size ->
+      |`Max_size ->
         let len = getint () in
-        cont (`Dhcp_max_msg_size (get_number len))
+        cont (`Max_size (get_number len))
       |`Mtu_interface ->
         (* TODO according to some printf/tcpdump testing, this is being set but not
          * respected by the unikernel; https://github.com/mirage/mirage/issues/238 *)
@@ -767,8 +767,8 @@ module Packet = struct
 
   let of_bytes buf =
     let opts = Unmarshal.of_bytes buf in
-    let mtype, rest = List.partition (function `Dhcp_msg_type _ -> true |_ -> false) opts in
-    let op = match mtype with [ `Dhcp_msg_type m ] -> m |_ -> raise (Unmarshal.Error "no mtype") in
+    let mtype, rest = List.partition (function `Message_type _ -> true |_ -> false) opts in
+    let op = match mtype with [ `Message_type m ] -> m |_ -> raise (Unmarshal.Error "no mtype") in
     { op=op; opts=rest }
 
   let to_bytes p =
