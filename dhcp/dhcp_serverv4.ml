@@ -279,8 +279,13 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
               Lwt.return (Some (server_construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:requested_ip_address ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options));
             )
             else
-              raise (DHCP_Server_Error "Invalid DHCP Request");(*either the request is for a different server or the xid doesn't match the server's
-                most recent transaction with that client*)
+              let error_reason =
+                if valid_reservation then "invalid xid"
+                else "DHCP Select with no Discover"
+              in
+              raise (DHCP_Server_Error (Printf.sprintf "Invalid DHCP Request from client %s requesting address %s: %s" client_identifier (Ipaddr.V4.to_string requested_ip_address)
+                error_reason));
+                (*either the request is for a different server or the xid doesn't match the server's most recent transaction with that client*)
           |None -> (*this is a renewal, rebinding or init_reboot.*)
             if (ciaddr = Ipaddr.V4.unspecified) then (*client in init-reboot*)
               let requested_IP = match find packet (function `Requested_ip ip -> Some ip |_ -> None) with
@@ -296,14 +301,16 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
                 Lwt.return (Some (server_construct_packet t ~xid:xid ~ciaddr:(Ipaddr.V4.unspecified) ~yiaddr:requested_IP ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr
                   ~flags:flags ~options:options));
               else (*address is not available, either because it's taken or because it's not on this subnet send Nak*)
+                (Console.log t.c (Printf.sprintf "Client %s requested address %s but it was unavailable, sending Nak" client_identifier (Ipaddr.V4.to_string requested_IP));
                 let options = make_options_without_lease ~serverIP:serverIP ~message_type:`Nak ~client_requests: client_requests
                 ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters in
                 Lwt.return (Some (server_construct_packet t ~xid:xid ~nak:true ~ciaddr:(Ipaddr.V4.unspecified) ~yiaddr:(Ipaddr.V4.unspecified)
-                  ~siaddr:(Ipaddr.V4.unspecified) ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options));
+                  ~siaddr:(Ipaddr.V4.unspecified) ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options)));
             else (*client in renew or rebind.*)
               if (dst = serverIP) then (*the packet was unicasted here, it's a renewal. Currently accept all renewals*)
                 (*Note: RFC 2131 states that the server should trust the client here, despite potential security issues*)
                 (change_address_state ciaddr (Lease_state.Active client_identifier) t lease_length) >>= fun () ->
+                Console.log t.c (Printf.sprintf "Renewal received from client %s for address %s" client_identifier (Ipaddr.V4.to_string ciaddr));
                 let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
                 ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
                 Lwt.return (Some (server_construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options));
@@ -311,24 +318,32 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
                 find_address ciaddr t >>= fun address_info ->
                 if (address_info = Lease_state.Active client_identifier) then (*this server is responsible for this.*)
                   change_address_state ciaddr (Lease_state.Active client_identifier) t lease_length >>= fun () ->
+                  Console.log t.c (Printf.sprintf "Renewal from client %s for address %s: dealt with at this server" client_identifier (Ipaddr.V4.to_string ciaddr));
                   let options = make_options_with_lease ~client_requests: client_requests ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
                   ~serverIP: serverIP ~lease_length:lease_length ~message_type:`Ack in
                   Lwt.return (Some (server_construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:ciaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options));
                 else (*this server is not responsible for this binding*)
-                  Lwt.return None
+                  (Console.log t.c (Printf.sprintf "Renewal from client %s for address %s, this server is not responsible for the address" client_identifier
+                    (Ipaddr.V4.to_string ciaddr));
+                  Lwt.return None)
               else Lwt.return None
             )
       |`Decline -> (*This means that the client has discovered that the offered IP address is in use, the server responds by reserving the address until a client explicitly releases it*)
         (match find packet (function `Requested_ip ip -> Some ip |_ -> None) with
-          |None -> Lwt.return None
+          |None ->
+            Console.log t.c (Printf.sprintf "Invalid decline from client %s : no address given" client_identifier);
+            Lwt.return None
           |Some ip_address ->
             (change_address_state ip_address (Lease_state.Active "client_unknown") t lease_length) >>= fun () ->
+            Console.log t.c (Printf.sprintf "Valid decline from client %s: address %s has been reserved" client_identifier (Ipaddr.V4.to_string ip_address));
             Lwt.return None
         )
       |`Release ->
         remove_address ciaddr t >>= fun () ->
+        Console.log t.c (Printf.sprintf "Client %s has released address %s" client_identifier (Ipaddr.V4.to_string ciaddr));
         Lwt.return None          
       |`Inform ->
+        Console.log t.c (Printf.sprintf "Client %s has sent a DHCPINFORM" client_identifier); (*TODO: print a list of requested options*) 
         let options = make_options_without_lease ~client_requests:client_requests ~serverIP:serverIP ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
         ~message_type:`Ack in
         Lwt.return (Some (server_construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:yiaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options));
