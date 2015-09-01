@@ -297,34 +297,94 @@ let op_to_string (x:op) =
 let t_to_string (t:t) =
   let ip_one s ip = sprintf "%s(%s)" s (Ipaddr.V4.to_string ip) in
   let ip_list s ips = sprintf "%s(%s)" s (String.concat "," (List.map Ipaddr.V4.to_string ips)) in
+  let ip_pair (s1,s2) = sprintf "%s,%s" (Ipaddr.V4.to_string s1) (Ipaddr.V4.to_string s2) in
+  let ip_pair_list s ips =
+    sprintf "%s(%s)" s (String.concat "," (List.map ip_pair ips))
+  in
+  let ip_pair_list_list s ips =
+    let ip_pair_list ips = (String.concat "," (List.map ip_pair ips)) in
+    sprintf "%s(%s)" s (String.concat "," (List.map ip_pair_list ips))
+  in
   let str s v = sprintf "%s(%s)" s (String.escaped v) in
   let strs s v = sprintf "%s(%s)" s (String.concat "," v) in
   let i32 s v = sprintf "%s(%lu)" s v in
+  let int_list s v = sprintf "%s(%s)" s (String.concat "," (List.map string_of_int v)) in
+  let boolean s v = sprintf "%s(%b)" s v in
   match t with
   |`Pad -> "Pad"
   |`Subnet_mask ip -> ip_one "Subnet mask" ip
   |`Time_offset _ -> "Time offset"
-  |`Broadcast_address x -> ip_one "Broadcast" x
   |`Router ips  -> ip_list "Routers" ips
   |`Time_server ips -> ip_list "Time servers" ips
   |`Name_server ips -> ip_list "Name servers" ips
   |`Dns_server ips -> ip_list "Dns servers" ips
+  |`Log_server ips -> ip_list "Log servers" ips
+  |`Cookie_server ips -> ip_list "Cookie servers" ips
+  |`Lpr_server ips -> ip_list "Lpr servers" ips
+  |`Impress_server ips -> ip_list "Impress servers" ips
+  |`Rlp_server ips -> ip_list "Rlp servers" ips
   |`Hostname s -> str "Host name" s
+  |`Boot_file_size sz -> str "Boot file size" (string_of_int sz)
+  |`Merit_dump_file s -> str "Merit dump file" s
   |`Domain_name s -> str "Domain name" s
+  |`Swap_server ip -> ip_one "Swap server" ip
+  |`Root_path s -> str "Root path" s
+  |`Extensions_path s -> str "Extensions path" s
+  |`Ip_forwarding b -> boolean "Ip forwarding" b
+  |`Non_local_source_routing b -> boolean "Non local source routing" b
+  |`Policy_filter ips -> ip_pair_list "Policy filter" ips
+  |`Max_datagram_reassembly max -> str "Max datagram reassembly" (string_of_int max)
+  |`Default_ip_ttl ttl -> str "Max ip ttl" (string_of_int ttl)
+  |`Mtu_timeout tm -> i32 "Path MTU aging timeout" tm
+  |`Mtu_plateau ints -> int_list "Path MTU plateau table" ints
+  |`Mtu_interface i -> str "Interface MTU" (string_of_int i)
+  |`All_subnets_local b -> boolean "All subnets local" b
+  |`Broadcast_address x -> ip_one "Broadcast" x
+  |`Mask_discovery b -> boolean "Mask discovery" b
+  |`Mask_supplier b -> boolean "Mask supplier" b
+  |`Router_discovery b -> boolean "Router discovery" b
+  |`Router_request ip -> ip_one "Router request" ip
+  |`Static_route ips -> ip_pair_list_list "Static routes" ips
+  |`Trailers b -> boolean "Trailer encapsulation" b
+  |`Arp_timeout tm -> i32 "Arp timeout" tm
+  |`Ethernet e -> boolean "Ethernet encapsulation" e
+  |`Default_tcp_ttl t -> str "Default tcp ttl" (string_of_int t)
+  |`Keepalive_time k -> i32 "Keepalive time" k
+  |`Keepalive_data b -> boolean "Keepalive data" b
+  |`Nis_domain s -> str "Nis domain" s
+  |`Nis_servers ips -> ip_list "Nis servers" ips
+  |`Ntp_servers ips -> ip_list "Ntp servers" ips
+  |`Netbios_name_server d -> ip_list "NetBIOS name server" d
+  |`Netbios_dist_srv d -> ip_list "Netbios distribution server" d
+  |`Netbios_node_type n -> str "Netbios node type" (string_of_int n)
+  |`X_window_font_server x -> ip_one "X window font server" x
+  |`X_window_manager x -> ip_one "X window display manager" x
   |`Requested_ip_address ip -> ip_one "Requested ip" ip
   |`Requested_lease tm -> i32 "Lease time" tm
+  |`Option_overload o -> str "Option overload" (string_of_int o)
   |`Message_type op -> str "Message type" (op_to_string op)
   |`Server_identifier ip -> ip_one "Server identifer" ip
   |`Parameter_request ps -> strs "Parameter request" (List.map msg_to_string ps)
   |`Message s -> str "Message" s
   |`Max_size sz -> str "Max size" (string_of_int sz)
-  |`Mtu_interface sz -> str "Interface MTU" (string_of_int sz)
+  |`Renewal_time r -> i32 "Renewal time" r
+  |`Rebinding_time r -> i32 "Rebinding time" r
   |`Client_identifier id -> str "Client id" id
+  |`Netware_domain s -> str "Netware domain" s
+  |`Nis_domain_name s -> str "Nis+ domain name" s
+  |`Nis_server_addr ips -> ip_list "Nis+ server address" ips
+  |`Mobile_ip_home_agent_addrs ips -> ip_list "Mobile ip home agent addresses" ips
+  |`Smtp_server ips -> ip_list "Smtp server" ips
+  |`Pop3_server ips -> ip_list "Pop3 server" ips
+  |`Nntp_server ips -> ip_list "Nntp server" ips
+  |`Www_server ips -> ip_list "Www server" ips
+  |`Finger_server ips -> ip_list "Finger server" ips
+  |`Irc_server ips -> ip_list "Irc server" ips
+  |`Streettalk_server ips -> ip_list "Streettalk server" ips
+  |`Stda_server ips -> ip_list "Streettalk directory assistance server" ips
   |`Domain_search d -> str "Domain search" d
-  |`Netbios_name_server d -> ip_list "NetBIOS name server" d
   |`Unknown (c,x) -> sprintf "Unknown(%d[%d])" (Char.code c) (Bytes.length x)
   |`End -> "End"
-
 
   let t_equal_to_msg t msg =
     match t,msg with
@@ -355,7 +415,7 @@ let t_to_string (t:t) =
     |`Mtu_timeout _,`Mtu_timeout -> true
     |`Mtu_plateau _,`Mtu_plateau -> true
     |`Mtu_interface _,`Mtu_interface -> true
-    |`Mtu_subnet _,`Mtu_subnet -> true
+    |`All_subnets_local _,`All_subnets_local -> true
     |`Broadcast_address _,`Broadcast_address -> true
     |`Mask_discovery _,`Mask_discovery -> true
     |`Mask_supplier _,`Mask_supplier -> true
@@ -371,12 +431,12 @@ let t_to_string (t:t) =
     |`Nis_domain _,`Nis_domain -> true
     |`Nis_servers _,`Nis_servers -> true
     |`Ntp_servers _,`Ntp_servers -> true
-    |`Vendor_specific _,`Vendor_specific -> true
+    (*|`Vendor_specific _,`Vendor_specific -> true*)
     |`Netbios_name_server _,`Netbios_name_server -> true
     |`Netbios_dist_srv _,`Netbios_dist_srv -> true
     |`Netbios_node_type _,`Netbios_node_type -> true
-    |`Netbios_scope _,`Netbios_scope -> true
-    |`X_window_font _,`X_window_font -> true
+    (*|`Netbios_scope _,`Netbios_scope -> true*)
+    |`X_window_font_server _,`X_window_font_server -> true
     |`X_window_manager _,`X_window_manager -> true
     |`Requested_ip_address _,`Requested_ip_address -> true
     |`Requested_lease _,`Requested_lease -> true
@@ -388,14 +448,14 @@ let t_to_string (t:t) =
     |`Max_size _,`Max_size -> true
     |`Renewal_time _,`Renewal_time -> true
     |`Rebinding_time _,`Rebinding_time -> true
-    |`Vendor_class_id _,`Vendor_class_id -> true
+    (*|`Vendor_class_id _,`Vendor_class_id -> true*)
     |`Client_identifier _,`Client_identifier -> true
     |`Netware_domain _,`Netware_domain -> true
-    |`Netware_option _,`Netware_option -> true
+    (*|`Netware_option _,`Netware_option -> true*)
     |`Nis_domain_name _,`Nis_domain_name -> true
     |`Nis_server_addr _,`Nis_server_addr -> true
-    |`Tftp_server_name _,`Tftp_server_name -> true
-    |`Bootfile_name _,`Bootfile_name -> true
+    (*|`Tftp_server_name _,`Tftp_server_name -> true
+    |`Bootfile_name _,`Bootfile_name -> true*)
     |`Mobile_ip_home_agent_addrs _,`Mobile_ip_home_agent_addrs -> true
     |`Smtp_server _,`Smtp_server -> true
     |`Pop3_server _,`Pop3_server -> true

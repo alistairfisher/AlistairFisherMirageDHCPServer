@@ -14,33 +14,12 @@
 open Dhcpv4_option;;
 open Dhcpv4_option.Packet;;
 
-let t_equalto_msg t msg = (*options in general need a better implementation, functions like this need to handle 255 cases separately...*)
-  match t,msg with
-  |`Subnet_mask _,`Subnet_mask -> true
-  |`Time_offset _,`Time_offset-> true
-  |`Router _,`Router ->true
-  |`Broadcast_address _,`Broadcast_address -> true
-  |`Time_server _,`Time_server -> true
-  |`Name_server _,`Name_server -> true
-  |`Dns_server _,`Dns_server -> true
-  |`Netbios_name_server _,`Netbios_name_server -> true
-  |`Hostname _,`Hostname -> true
-  |`Domain_name _,`Domain_name -> true
-  |`Message_type _,`Message_type -> true
-  |`Server_identifier _,`Server_identifier-> true
-  |`Mtu_interface _,`Mtu_interface -> true
-  |`Message _,`Message -> true
-  |`Max_size _,`Max_size -> true
-  |`Client_identifier _,`Client_identifier -> true
-  |`Domain_search _,`Domain_search -> true
-  |_ -> false
-
 let rec find_option option subnet_parameters global_parameters = 
   let rec find_option2 option parameter_list = (*Find an option in the list of subnet parameters*)
     match parameter_list with
     |[] -> None
     |h::t ->
-      if t_equalto_msg h option then Some h
+      if t_equal_to_msg h option then Some h
       else find_option2 option t
   in
   match (find_option2 option subnet_parameters) with (*try subnet params first, if nothing found, try globals*)
