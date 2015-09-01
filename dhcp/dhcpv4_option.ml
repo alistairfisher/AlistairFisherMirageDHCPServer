@@ -556,7 +556,8 @@ module Marshal = struct
     |`Streettalk_server -> 75
     |`Stda_server -> 76
     |`Domain_search -> 119
-    |`End -> 255;;
+    |`End -> 255
+    |`Unknown c -> Char.code c;;
 
   let to_byte x = Bytes.make 1 (Char.chr (t_to_code x))
 
@@ -568,17 +569,22 @@ module Marshal = struct
     Bytes.set x 2 (Char.chr (Int32.to_int (s >! 8)));
     Bytes.set x 3 (Char.chr (Int32.to_int (s >! 0)));
     x
-
+  
   let uint16_to_bytes s =
     let x = Bytes.create 2 in
     Bytes.set x 0 (Char.chr (s land 255));
     Bytes.set x 1 (Char.chr ((s lsl 8) land 255));
     x
 
+  let bool_to_bytes b =
+    if b then Bytes.make 1 '1'
+    else Bytes.make 1 '0';;
+
   let size x = Bytes.make 1 (Char.chr x)
   let str c x = to_byte c :: (size (Bytes.length x)) :: [x]
   let uint32 c x = to_byte c :: [ "\004"; uint32_to_bytes x]
   let uint16 c x = to_byte c :: [ "\002"; uint16_to_bytes x]
+  let boolean c x = to_byte c :: ["\001";bool_to_bytes x]
   let ip_list c ips =
     let x = List.map (fun x -> (uint32_to_bytes (Ipaddr.V4.to_int32 x))) ips in
     to_byte c :: (size (List.length x * 4)) :: x
@@ -590,18 +596,53 @@ module Marshal = struct
       |`Subnet_mask mask -> ip_one `Subnet_mask mask
       |`Time_offset _ -> assert false (* TODO 2s complement not uint32 *)
       |`Router ips -> ip_list `Router ips
-      |`Broadcast_address ip -> ip_one `Broadcast_address ip
       |`Time_server ips -> ip_list `Time_server ips
       |`Name_server ips -> ip_list `Name_server ips
       |`Dns_server ips -> ip_list `Dns_server ips
-      |`Netbios_name_server ips -> ip_list `Netbios_name_server ips
+      |`Log_server ips -> ip_list `Log_server ips
+      |`Cookie_server ips -> ip_list `Cookie_server ips
+      |`Lpr_server ips -> ip_list `Lpr_server ips
+      |`Impress_server ips -> ip_list `Impress_server ips
+      |`Rlp_server ips -> ip_list `Rlp_server ips
       |`Hostname h -> str `Hostname h
+      |`Boot_file_size b -> uint16 `Boot_file_size b
+      |`Merit_dump_file m -> str `Merit_dump_file m
       |`Domain_name n -> str `Domain_name n
+      |`Swap_server s -> ip_one `Swap_server s
+      |`Root_path s -> str `Root_path s
+      |`Extensions_path e -> str `Extensions_path e
+      |`Ip_forwarding i -> boolean `Ip_forwarding i
+      |`Non_local_source_routing n -> boolean `Non_local_source_routing n
+      (*TODO: policy filter*)
+      |`Max_datagram_reassembly d -> uint16 `Max_datagram_reassembly d
+      (* TODO:|`Default_ip_ttl need 1 byte int*)
+      |`Mtu_timeout t -> uint32 `Mtu_timeout t
+      (*TODO: Mtu_plateau need int list*)
+      |`Mtu_interface s -> uint16 `Mtu_interface s
+      |`All_subnets_local s -> boolean `All_subnets_local s
+      |`Broadcast_address ip -> ip_one `Broadcast_address ip
+      |`Mask_discovery m -> boolean `Mask_discovery m
+      |`Mask_supplier m -> boolean `Mask_supplier m
+      |`Router_discovery r -> boolean `Router_discovery r
+      |`Router_request r -> ip_one `Router_request r
+      (*TODO: static route*)
+      |`Trailers t -> boolean `Trailers t
+      |`Arp_timeout a -> uint32 `Arp_timeout a
+      |`Ethernet e -> boolean `Ethernet e
+      (*TODO: default TCP ttl: need 8 bit int*)
+      |`Keepalive_time t -> uint32 `Keepalive_time t
+      |`Keepalive_data d -> boolean `Keepalive_data d
+      |`Nis_domain d -> str `Nis_domain d
+      |`Nis_servers s -> ip_list `Nis_domain s
+      |`Ntp_servers s -> ip_list `Ntp_servers s
+      |`Netbios_name_server ips -> ip_list `Netbios_name_server ips
+      |`Netbios_dist_srv ips -> ip_list `Netbios_dist_srv ips
+      (*TODO: netbios node type: need 8 but int*)
+      |`X_window_font_server x -> ip_one `X_window_font_server x
+      |`X_window_manager x -> ip_one `X_window_manager x
       |`Requested_ip_address ip -> ip_one `Requested_ip_address ip
       |`Requested_lease t -> uint32 `Requested_lease t
-      |`Message x -> str `Message x
-      |`Max_size s -> uint16 `Max_size s
-      |`Mtu_interface s -> uint16 `Mtu_interface s
+      (*TODO: option overload 8 bit int*)
       |`Message_type mtype ->
         let mcode = function
           |`Discover -> "\001"
@@ -618,9 +659,25 @@ module Marshal = struct
       |`Parameter_request ps ->
         to_byte `Parameter_request :: (size (List.length ps)) ::
         List.map to_byte ps
+      |`Message x -> str `Message x
+      |`Max_size s -> uint16 `Max_size s
+      |`Renewal_time r -> uint32 `Renewal_time r
+      |`Rebinding_time r -> uint32 `Rebinding_time r
       |`Client_identifier s ->
-        let s' = "\000" ^ s in (* only support domain name ids *)
+        let s' = "\000" ^ s in (* only support domain name ids ???? *)
         str `Client_identifier s'
+      |`Netware_domain n -> str `Netware_domain n
+      |`Nis_domain_name n -> str `Nis_domain_name n
+      |`Nis_server_addr n -> ip_list `Nis_server_addr n
+      |`Mobile_ip_home_agent_addrs m -> ip_list `Mobile_ip_home_agent_addrs m
+      |`Smtp_server s -> ip_list `Smtp_server s
+      |`Pop3_server s -> ip_list `Pop3_server s
+      |`Nntp_server s -> ip_list `Nntp_server s
+      |`Www_server s -> ip_list `Www_server s
+      |`Finger_server s -> ip_list `Finger_server s
+      |`Irc_server s -> ip_list `Irc_server s
+      |`Streettalk_server s -> ip_list `Streettalk_server s
+      |`Stda_server s -> ip_list `Stda_server s 
       |`Domain_search _ ->
         assert false (* not supported yet, requires annoying Dns compression *)
       |`End -> [to_byte `End]
