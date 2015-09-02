@@ -19,6 +19,7 @@ let suite = [
   "connect", Test_connect.suite ;
   "iperf"  , Test_iperf.suite   ;
   "dhcp server",Test_dhcp_server.suite;
+  "dhcp options",Test_dhcp_options.suite;
 ]
 
 let run test () =
