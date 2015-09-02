@@ -190,7 +190,7 @@ type t = [
   |`Unknown of (char*string) (*code and buffer*)
   |`End
 ]
-
+val t_equal_to_msg : t -> msg -> bool
 val msg_to_string : msg -> string
 val op_to_string : op -> string
 val t_to_string : t -> string
