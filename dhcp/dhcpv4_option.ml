@@ -573,17 +573,30 @@ module Marshal = struct
   let uint16_to_bytes s =
     let x = Bytes.create 2 in
     Bytes.set x 0 (Char.chr (s land 255));
-    Bytes.set x 1 (Char.chr ((s lsl 8) land 255));
+    Bytes.set x 1 (Char.chr ((s lsl 8) land 255)); (*??? WHY LEFT?*)
     x
-
+  
+  let uint16_list_to_bytes s =
+    let x = List.map uint16_to_bytes s in
+    Bytes.concat Bytes.empty x;;
+    
+  let uint8_to_bytes s =
+    let x = Bytes.create 1 in
+    Bytes.set x 0 (Char.chr (s land 255));
+    x
+  
   let bool_to_bytes b =
-    if b then Bytes.make 1 '1'
-    else Bytes.make 1 '0';;
+    if b then Bytes.make 1 (Char.chr 1)
+    else Bytes.make 1 (Char.chr 0);;
 
   let size x = Bytes.make 1 (Char.chr x)
   let str c x = to_byte c :: (size (Bytes.length x)) :: [x]
   let uint32 c x = to_byte c :: [ "\004"; uint32_to_bytes x]
   let uint16 c x = to_byte c :: [ "\002"; uint16_to_bytes x]
+  let uint8 c x = to_byte c :: [ "\001"; uint8_to_bytes x]
+  let uint16_list c x =
+    let len =  Bytes.make 1 (Char.chr (2*(List.length x))) in
+    to_byte c :: [len;uint16_list_to_bytes x];;
   let boolean c x = to_byte c :: ["\001";bool_to_bytes x]
   let ip_list c ips =
     let x = List.map (fun x -> (uint32_to_bytes (Ipaddr.V4.to_int32 x))) ips in
@@ -615,9 +628,9 @@ module Marshal = struct
       |`Non_local_source_routing n -> boolean `Non_local_source_routing n
       (*TODO: policy filter*)
       |`Max_datagram_reassembly d -> uint16 `Max_datagram_reassembly d
-      (* TODO:|`Default_ip_ttl need 1 byte int*)
+      |`Default_ip_ttl t -> uint8 `Default_ip_ttl t
       |`Mtu_timeout t -> uint32 `Mtu_timeout t
-      (*TODO: Mtu_plateau need int list*)
+      |`Mtu_plateau p -> uint16_list `Mtu_plateau p
       |`Mtu_interface s -> uint16 `Mtu_interface s
       |`All_subnets_local s -> boolean `All_subnets_local s
       |`Broadcast_address ip -> ip_one `Broadcast_address ip
@@ -629,7 +642,7 @@ module Marshal = struct
       |`Trailers t -> boolean `Trailers t
       |`Arp_timeout a -> uint32 `Arp_timeout a
       |`Ethernet e -> boolean `Ethernet e
-      (*TODO: default TCP ttl: need 8 bit int*)
+      |`Default_tcp_ttl t -> uint8 `Default_tcp_ttl t
       |`Keepalive_time t -> uint32 `Keepalive_time t
       |`Keepalive_data d -> boolean `Keepalive_data d
       |`Nis_domain d -> str `Nis_domain d
@@ -637,12 +650,12 @@ module Marshal = struct
       |`Ntp_servers s -> ip_list `Ntp_servers s
       |`Netbios_name_server ips -> ip_list `Netbios_name_server ips
       |`Netbios_dist_srv ips -> ip_list `Netbios_dist_srv ips
-      (*TODO: netbios node type: need 8 but int*)
+      |`Netbios_node_type n -> uint8 `Netbios_node_type n
       |`X_window_font_server x -> ip_one `X_window_font_server x
       |`X_window_manager x -> ip_one `X_window_manager x
       |`Requested_ip_address ip -> ip_one `Requested_ip_address ip
       |`Requested_lease t -> uint32 `Requested_lease t
-      (*TODO: option overload 8 bit int*)
+      |`Option_overload o -> uint8 `Option_overload o
       |`Message_type mtype ->
         let mcode = function
           |`Discover -> "\001"
@@ -796,7 +809,7 @@ module Unmarshal = struct
     let check c = (* Check that a char is the provided value *)
       let r = getc () in
       if r != c then raise (Error (sprintf "check failed at %d != %d" !pos (Char.code c))) in
-    let get_addr fn = (* Get one address *)
+    let get_addr fn = (* Get 4 bytes, use for address or int32 *)
       check '\004';
       fn (slice 4) in
     let get_number len = (* Get a number from len bytes *)
@@ -818,6 +831,10 @@ module Unmarshal = struct
       let fn p = Int32.shift_left (Int32.of_int (Char.code x.[p])) ((3-p)*8) in
       let (++) = Int32.add in
       (fn 0) ++ (fn 1) ++ (fn 2) ++ (fn 3) in
+    let bool_of_bytes ()=
+      check '\001';
+      getint() = 1
+    in
     let rec fn acc =
       let cont (r:t) = fn (r :: acc) in
       let code = msg_of_code (getc ()) in
@@ -826,18 +843,46 @@ module Unmarshal = struct
       |`Subnet_mask -> cont (`Subnet_mask (get_addr ipv4_addr_of_bytes))
       |`Time_offset -> cont (`Time_offset (get_addr (fun x -> x)))
       |`Router -> cont (`Router (get_addrs ipv4_addr_of_bytes))
-      |`Broadcast_address -> cont (`Broadcast_address (get_addr ipv4_addr_of_bytes))
       |`Time_server -> cont (`Time_server (get_addrs ipv4_addr_of_bytes))
       |`Name_server -> cont (`Name_server (get_addrs ipv4_addr_of_bytes))
       |`Dns_server -> cont (`Dns_server (get_addrs ipv4_addr_of_bytes))
+      |`Log_server -> cont (`Log_server (get_addrs ipv4_addr_of_bytes))
+      |`Cookie_server -> cont (`Cookie_server (get_addrs ipv4_addr_of_bytes))
+      |`Lpr_server -> cont (`Lpr_server (get_addrs ipv4_addr_of_bytes))
+      |`Impress_server -> cont (`Impress_server (get_addrs ipv4_addr_of_bytes))
+      |`Rlp_server -> cont (`Rlp_server (get_addrs ipv4_addr_of_bytes))
       |`Hostname -> cont (`Hostname (slice (getint ())))
       |`Domain_name -> cont (`Domain_name (slice (getint ())))
-      |`Requested_ip_address -> cont (`Requested_ip_address (get_addr ipv4_addr_of_bytes))
-      |`Server_identifier -> cont (`Server_identifier (get_addr ipv4_addr_of_bytes))
-      |`Requested_lease -> cont (`Requested_lease (get_addr uint32_of_bytes))
-      |`Domain_search -> cont (`Domain_search (slice (getint())))
+      |`Swap_server -> cont (`Swap_server (get_addr ipv4_addr_of_bytes))
+      |`Root_path -> cont (`Root_path (slice(getint())))
+      |`Extensions_path -> cont (`Extensions_path (slice(getint())))
+      |`Ip_forwarding -> cont(`Ip_forwarding (bool_of_bytes()))
+      |`Non_local_source_routing -> cont(`Non_local_source_routing (bool_of_bytes()))
+      |`Mtu_timeout -> cont(`Mtu_timeout(get_addr uint32_of_bytes))
+      |`Mtu_interface ->
+        (* TODO according to some printf/tcpdump testing, this is being set but not
+         * respected by the unikernel; https://github.com/mirage/mirage/issues/238 *)
+        let len = getint () in
+        cont (`Mtu_interface (get_number len))
+      |`All_subnets_local -> cont(`All_subnets_local (bool_of_bytes ()))
+      |`Broadcast_address -> cont (`Broadcast_address (get_addr ipv4_addr_of_bytes))
+      |`Router_request -> cont (`Router_request (get_addr ipv4_addr_of_bytes))
+      (*TODO: static routes,trailers*)
+      |`Arp_timeout -> cont (`Arp_timeout (get_addr uint32_of_bytes))
+      (*TODO: ethernet,default tcp ttl*)
+      |`Keepalive_time -> cont (`Keepalive_time (get_addr uint32_of_bytes))
+      (*TODO:keepalive data*)
+      |`Nis_domain -> cont (`Nis_domain (slice(getint())))
+      |`Nis_servers -> cont (`Nis_servers (get_addrs ipv4_addr_of_bytes))
+      |`Ntp_servers -> cont (`Ntp_servers (get_addrs ipv4_addr_of_bytes))
       |`Netbios_name_server -> cont (`Netbios_name_server (get_addrs ipv4_addr_of_bytes))
-      |`Message -> cont (`Message (slice (getint ())))
+      |`Netbios_dist_srv -> cont (`Netbios_dist_srv (get_addrs ipv4_addr_of_bytes))
+      (*TODO: netbios node type*)
+      |`X_window_font_server -> cont (`X_window_font_server (get_addr ipv4_addr_of_bytes))
+      |`X_window_manager -> cont (`X_window_manager (get_addr ipv4_addr_of_bytes))
+      |`Requested_ip_address -> cont (`Requested_ip_address (get_addr ipv4_addr_of_bytes))
+      |`Requested_lease -> cont (`Requested_lease (get_addr uint32_of_bytes))
+      (*TODO: option overload*)
       |`Message_type ->
         check '\001';
         let mcode = match (getc ()) with
@@ -851,6 +896,7 @@ module Unmarshal = struct
           |'\008'  -> `Inform
           |x -> `Unknown x in
         cont (`Message_type mcode)
+      |`Server_identifier -> cont (`Server_identifier (get_addr ipv4_addr_of_bytes))
       |`Parameter_request ->
         let len = getint () in
         let params = ref [] in
@@ -858,18 +904,28 @@ module Unmarshal = struct
           params := (msg_of_code (getc ())) :: !params
         done;
         cont (`Parameter_request (List.rev !params))
+      |`Message -> cont (`Message (slice (getint ())))
       |`Max_size ->
         let len = getint () in
         cont (`Max_size (get_number len))
-      |`Mtu_interface ->
-        (* TODO according to some printf/tcpdump testing, this is being set but not
-         * respected by the unikernel; https://github.com/mirage/mirage/issues/238 *)
-        let len = getint () in
-        cont (`Mtu_interface (get_number len))
+      |`Renewal_time -> cont (`Renewal_time (get_addr uint32_of_bytes))
+      |`Rebinding_time -> cont (`Rebinding_time (get_addr uint32_of_bytes))
       |`Client_identifier ->
         let len = getint () in
         let _ = getint () in (* disregard type information *)
         cont (`Client_identifier (slice len))
+      |`Netware_domain -> cont (`Netware_domain (slice (getint())))
+      |`Nis_domain_name -> cont (`Nis_domain_name (slice(getint())))
+      |`Nis_server_addr -> cont (`Nis_server_addr (get_addrs ipv4_addr_of_bytes))
+      |`Mobile_ip_home_agent_addrs -> cont (`Mobile_ip_home_agent_addrs (get_addrs ipv4_addr_of_bytes))
+      |`Smtp_server -> cont (`Smtp_server (get_addrs ipv4_addr_of_bytes))
+      |`Pop3_server -> cont (`Pop3_server (get_addrs ipv4_addr_of_bytes))
+      |`Www_server -> cont (`Www_server (get_addrs ipv4_addr_of_bytes))
+      |`Finger_server -> cont (`Finger_server (get_addrs ipv4_addr_of_bytes))
+      |`Irc_server -> cont (`Irc_server (get_addrs ipv4_addr_of_bytes))
+      |`Streettalk_server -> cont (`Streettalk_server (get_addrs ipv4_addr_of_bytes))
+      |`Stda_server -> cont (`Stda_server (get_addrs ipv4_addr_of_bytes))
+      |`Domain_search -> cont (`Domain_search (slice (getint())))
       |`End -> acc
       |`Unknown c -> cont (`Unknown (c, (slice (getint ()))))
     in
