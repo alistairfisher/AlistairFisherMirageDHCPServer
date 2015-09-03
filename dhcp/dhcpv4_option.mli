@@ -59,11 +59,11 @@ type msg = [
   |`Nis_domain
   |`Nis_servers
   |`Ntp_servers
-  |`Vendor_specific
+  (*|`Vendor_specific*)
   |`Netbios_name_server
   |`Netbios_dist_srv
   |`Netbios_node_type
-  |`Netbios_scope
+  (*|`Netbios_scope*)
   |`X_window_font_server
   |`X_window_manager
   |`Requested_ip_address
@@ -76,14 +76,14 @@ type msg = [
   |`Max_size
   |`Renewal_time
   |`Rebinding_time
-  |`Vendor_class_id
+  (*|`Vendor_class_id*)
   |`Client_identifier
   |`Netware_domain
-  |`Netware_option
+  (*|`Netware_option*)
   |`Nis_domain_name
   |`Nis_server_addr
-  |`Tftp_server_name
-  |`Bootfile_name
+  (*|`Tftp_server_name
+  |`Bootfile_name*)
   |`Mobile_ip_home_agent_addrs
   |`Smtp_server
   |`Pop3_server
@@ -142,7 +142,7 @@ type t = [
   |`Mask_supplier of bool
   |`Router_discovery of bool
   |`Router_request of Ipaddr.V4.t
-  |`Static_route of (Ipaddr.V4.t * Ipaddr.V4.t) list list
+  |`Static_route of (Ipaddr.V4.t * Ipaddr.V4.t) list
   |`Trailers of bool
   |`Arp_timeout of int32 (*unsigned*)
   |`Ethernet of bool

@@ -66,11 +66,11 @@ type msg = [
   |`Nis_domain
   |`Nis_servers
   |`Ntp_servers
-  |`Vendor_specific
+  (*|`Vendor_specific*)
   |`Netbios_name_server
   |`Netbios_dist_srv
   |`Netbios_node_type
-  |`Netbios_scope
+  (*|`Netbios_scope*)
   |`X_window_font_server
   |`X_window_manager
   |`Requested_ip_address
@@ -83,14 +83,14 @@ type msg = [
   |`Max_size
   |`Renewal_time
   |`Rebinding_time
-  |`Vendor_class_id
+  (*|`Vendor_class_id*)
   |`Client_identifier
   |`Netware_domain
-  |`Netware_option
+  (*|`Netware_option*)
   |`Nis_domain_name
   |`Nis_server_addr
-  |`Tftp_server_name
-  |`Bootfile_name
+  (*|`Tftp_server_name*)
+  (*|`Bootfile_name*)
   |`Mobile_ip_home_agent_addrs
   |`Smtp_server
   |`Pop3_server
@@ -151,7 +151,7 @@ type t = [
   |`Mask_supplier of bool
   |`Router_discovery of bool
   |`Router_request of Ipaddr.V4.t
-  |`Static_route of (Ipaddr.V4.t * Ipaddr.V4.t) list list
+  |`Static_route of (Ipaddr.V4.t * Ipaddr.V4.t) list
   |`Trailers of bool
   |`Arp_timeout of int32 (*unsigned*)
   |`Ethernet of bool
@@ -244,11 +244,11 @@ let msg_to_string = function
   |`Nis_domain -> "Nis_domain"
   |`Nis_servers -> "Nis_servers"
   |`Ntp_servers -> "Ntp_servers"
-  |`Vendor_specific -> "Vendor_specific"
+  (*|`Vendor_specific -> "Vendor_specific"*)
   |`Netbios_name_server -> "Netbios_name_server"
   |`Netbios_dist_srv -> "Netbios_dist_srv"
   |`Netbios_node_type -> "Netbios_node_type"
-  |`Netbios_scope -> "Netbios_scope"
+  (*|`Netbios_scope -> "Netbios_scope"*)
   |`X_window_font_server -> "X_window_font_server"
   |`X_window_manager -> "X_window_manager"
   |`Requested_ip_address -> "Requested_ip_address"
@@ -261,14 +261,14 @@ let msg_to_string = function
   |`Max_size -> "Max_size"
   |`Renewal_time -> "Renewal_time"
   |`Rebinding_time -> "Rebinding_time"
-  |`Vendor_class_id -> "Vendor_class_id"
+  (*|`Vendor_class_id -> "Vendor_class_id"*)
   |`Client_identifier -> "Client_identifier"
   |`Netware_domain -> "Netware_domain"
-  |`Netware_option -> "Netware_option"
+  (*|`Netware_option -> "Netware_option"*)
   |`Nis_domain_name -> "Nis_domain_name"
   |`Nis_server_addr -> "Nis_server_addr"
-  |`Tftp_server_name -> "Tftp_server_name"
-  |`Bootfile_name -> "Bootfile_name"
+  (*|`Tftp_server_name -> "Tftp_server_name"
+  |`Bootfile_name -> "Bootfile_name"*)
   |`Mobile_ip_home_agent_addrs -> "Mobile_ip_home_agent_addrs"
   |`Smtp_server -> "Smtp_server"
   |`Pop3_server -> "Pop3_server"
@@ -299,11 +299,7 @@ let t_to_string (t:t) =
   let ip_list s ips = sprintf "%s(%s)" s (String.concat "," (List.map Ipaddr.V4.to_string ips)) in
   let ip_pair (s1,s2) = sprintf "%s,%s" (Ipaddr.V4.to_string s1) (Ipaddr.V4.to_string s2) in
   let ip_pair_list s ips =
-    sprintf "%s(%s)" s (String.concat "," (List.map ip_pair ips))
-  in
-  let ip_pair_list_list s ips =
-    let ip_pair_list ips = (String.concat "," (List.map ip_pair ips)) in
-    sprintf "%s(%s)" s (String.concat "," (List.map ip_pair_list ips))
+    sprintf "%s(%s)" s (String.concat ";" (List.map ip_pair ips))
   in
   let str s v = sprintf "%s(%s)" s (String.escaped v) in
   let strs s v = sprintf "%s(%s)" s (String.concat "," v) in
@@ -344,7 +340,7 @@ let t_to_string (t:t) =
   |`Mask_supplier b -> boolean "Mask supplier" b
   |`Router_discovery b -> boolean "Router discovery" b
   |`Router_request ip -> ip_one "Router request" ip
-  |`Static_route ips -> ip_pair_list_list "Static routes" ips
+  |`Static_route ips -> ip_pair_list "Static routes" ips
   |`Trailers b -> boolean "Trailer encapsulation" b
   |`Arp_timeout tm -> i32 "Arp timeout" tm
   |`Ethernet e -> boolean "Ethernet encapsulation" e
@@ -521,11 +517,11 @@ module Marshal = struct
     |`Nis_domain -> 40
     |`Nis_servers -> 41
     |`Ntp_servers -> 42
-    |`Vendor_specific -> 43
+    (*|`Vendor_specific -> 43*)
     |`Netbios_name_server -> 44
     |`Netbios_dist_srv -> 45
     |`Netbios_node_type -> 46
-    |`Netbios_scope -> 47
+    (*|`Netbios_scope -> 47*)
     |`X_window_font_server -> 48
     |`X_window_manager -> 49
     |`Requested_ip_address -> 50
@@ -538,14 +534,14 @@ module Marshal = struct
     |`Max_size -> 57
     |`Renewal_time -> 58
     |`Rebinding_time -> 59
-    |`Vendor_class_id -> 60
+    (*|`Vendor_class_id -> 60*)
     |`Client_identifier -> 61
     |`Netware_domain -> 62
-    |`Netware_option -> 63
+    (*|`Netware_option -> 63*)
     |`Nis_domain_name -> 64
     |`Nis_server_addr -> 65
-    |`Tftp_server_name -> 66
-    |`Bootfile_name -> 67
+    (*|`Tftp_server_name -> 66
+    |`Bootfile_name -> 67*)
     |`Mobile_ip_home_agent_addrs -> 68
     |`Smtp_server -> 69
     |`Pop3_server -> 70
@@ -572,8 +568,8 @@ module Marshal = struct
   
   let uint16_to_bytes s =
     let x = Bytes.create 2 in
-    Bytes.set x 0 (Char.chr (s land 255));
-    Bytes.set x 1 (Char.chr ((s lsl 8) land 255)); (*??? WHY LEFT?*)
+    Bytes.set x 1 (Char.chr (s land 255));
+    Bytes.set x 0 (Char.chr ((s lsr 8) land 255)); (*??? WHY LEFT?*)
     x
   
   let uint16_list_to_bytes s =
@@ -598,11 +594,15 @@ module Marshal = struct
     let len =  Bytes.make 1 (Char.chr (2*(List.length x))) in
     to_byte c :: [len;uint16_list_to_bytes x];;
   let boolean c x = to_byte c :: ["\001";bool_to_bytes x]
+  let ip_to_bytes x = uint32_to_bytes (Ipaddr.V4.to_int32 x)
   let ip_list c ips =
-    let x = List.map (fun x -> (uint32_to_bytes (Ipaddr.V4.to_int32 x))) ips in
+    let x = List.map ip_to_bytes ips in
     to_byte c :: (size (List.length x * 4)) :: x
+  let ip_pair (a,b) = Bytes.cat (ip_to_bytes a) (ip_to_bytes b)
+  let ip_pair_list c ips : bytes list =
+    let x = List.map ip_pair ips in
+    to_byte c :: (size (List.length x * 8)) :: x
   let ip_one c x = uint32 c (Ipaddr.V4.to_int32 x)
-
   let to_bytes (x:t) =
     let bits = match x with
       |`Pad -> [to_byte `Pad]
@@ -626,7 +626,7 @@ module Marshal = struct
       |`Extensions_path e -> str `Extensions_path e
       |`Ip_forwarding i -> boolean `Ip_forwarding i
       |`Non_local_source_routing n -> boolean `Non_local_source_routing n
-      (*TODO: policy filter*)
+      |`Policy_filter p -> ip_pair_list `Policy_filter p
       |`Max_datagram_reassembly d -> uint16 `Max_datagram_reassembly d
       |`Default_ip_ttl t -> uint8 `Default_ip_ttl t
       |`Mtu_timeout t -> uint32 `Mtu_timeout t
@@ -638,7 +638,7 @@ module Marshal = struct
       |`Mask_supplier m -> boolean `Mask_supplier m
       |`Router_discovery r -> boolean `Router_discovery r
       |`Router_request r -> ip_one `Router_request r
-      (*TODO: static route*)
+      |`Static_route r -> ip_pair_list `Static_route r
       |`Trailers t -> boolean `Trailers t
       |`Arp_timeout a -> uint32 `Arp_timeout a
       |`Ethernet e -> boolean `Ethernet e
@@ -754,11 +754,11 @@ module Unmarshal = struct
     |'\040' -> `Nis_domain
     |'\041' -> `Nis_servers
     |'\042' -> `Ntp_servers
-    |'\043' -> `Vendor_specific
+    (*|'\043' -> `Vendor_specific*)
     |'\044' -> `Netbios_name_server
     |'\045' -> `Netbios_dist_srv
     |'\046' -> `Netbios_node_type
-    |'\047' -> `Netbios_scope
+    (*|'\047' -> `Netbios_scope*)
     |'\048' -> `X_window_font_server
     |'\049' -> `X_window_manager
     |'\050' -> `Requested_ip_address
@@ -771,14 +771,14 @@ module Unmarshal = struct
     |'\057' -> `Max_size
     |'\058' -> `Renewal_time
     |'\059' -> `Rebinding_time
-    |'\060' -> `Vendor_class_id
+    (*|'\060' -> `Vendor_class_id*)
     |'\061' -> `Client_identifier
     |'\062' -> `Netware_domain
-    |'\063' -> `Netware_option
+    (*|'\063' -> `Netware_option*)
     |'\064' -> `Nis_domain_name
     |'\065' -> `Nis_server_addr
-    |'\066' -> `Tftp_server_name
-    |'\067' -> `Bootfile_name
+    (*|'\066' -> `Tftp_server_name
+    |'\067' -> `Bootfile_name*)
     |'\068' -> `Mobile_ip_home_agent_addrs
     |'\069' -> `Smtp_server
     |'\070' -> `Pop3_server
@@ -827,6 +827,22 @@ module Unmarshal = struct
         res := (fn (slice 4)) :: !res
       done;
       List.rev !res in
+    let get_uint16_list () =
+      let len = getint()/2 in
+      let res = ref [] in
+      for _i = 1 to len do
+        res := get_number(2) :: !res
+      done;
+      List.rev !res in
+    let get_addr_pairs () =
+      let len = getint () / 8 in
+      let res = ref [] in
+      for _i = 1 to len do
+        let a = ipv4_addr_of_bytes (slice 4) in
+        let b = ipv4_addr_of_bytes(slice 4) in
+        res := (a,b) :: !res (*pair is out of order here because the bytes are reversed in a later step*)
+      done;
+      List.rev !res in
     let uint32_of_bytes x =
       let fn p = Int32.shift_left (Int32.of_int (Char.code x.[p])) ((3-p)*8) in
       let (++) = Int32.add in
@@ -852,13 +868,19 @@ module Unmarshal = struct
       |`Impress_server -> cont (`Impress_server (get_addrs ipv4_addr_of_bytes))
       |`Rlp_server -> cont (`Rlp_server (get_addrs ipv4_addr_of_bytes))
       |`Hostname -> cont (`Hostname (slice (getint ())))
+      |`Boot_file_size -> cont (`Boot_file_size (get_number (getint())))
+      |`Merit_dump_file -> cont (`Merit_dump_file (slice(getint())))
       |`Domain_name -> cont (`Domain_name (slice (getint ())))
       |`Swap_server -> cont (`Swap_server (get_addr ipv4_addr_of_bytes))
       |`Root_path -> cont (`Root_path (slice(getint())))
       |`Extensions_path -> cont (`Extensions_path (slice(getint())))
       |`Ip_forwarding -> cont(`Ip_forwarding (bool_of_bytes()))
       |`Non_local_source_routing -> cont(`Non_local_source_routing (bool_of_bytes()))
+      |`Max_datagram_reassembly -> cont (`Max_datagram_reassembly (get_number(getint())))
+      |`Default_ip_ttl -> cont (`Default_ip_ttl (get_number(getint())))
+      |`Policy_filter -> cont(`Policy_filter (get_addr_pairs()))
       |`Mtu_timeout -> cont(`Mtu_timeout(get_addr uint32_of_bytes))
+      |`Mtu_plateau -> cont(`Mtu_plateau(get_uint16_list()))
       |`Mtu_interface ->
         (* TODO according to some printf/tcpdump testing, this is being set but not
          * respected by the unikernel; https://github.com/mirage/mirage/issues/238 *)
@@ -866,23 +888,28 @@ module Unmarshal = struct
         cont (`Mtu_interface (get_number len))
       |`All_subnets_local -> cont(`All_subnets_local (bool_of_bytes ()))
       |`Broadcast_address -> cont (`Broadcast_address (get_addr ipv4_addr_of_bytes))
+      |`Mask_discovery -> cont (`Mask_discovery(bool_of_bytes()))
+      |`Mask_supplier -> cont (`Mask_supplier(bool_of_bytes()))
+      |`Router_discovery -> cont (`Router_discovery(bool_of_bytes()))
       |`Router_request -> cont (`Router_request (get_addr ipv4_addr_of_bytes))
-      (*TODO: static routes,trailers*)
+      |`Static_route -> cont (`Static_route (get_addr_pairs()))
+      |`Trailers -> cont (`Trailers (bool_of_bytes()))
       |`Arp_timeout -> cont (`Arp_timeout (get_addr uint32_of_bytes))
-      (*TODO: ethernet,default tcp ttl*)
+      |`Ethernet -> cont (`Ethernet (bool_of_bytes()))
+      |`Default_tcp_ttl -> cont(`Default_tcp_ttl (get_number (getint())))
       |`Keepalive_time -> cont (`Keepalive_time (get_addr uint32_of_bytes))
-      (*TODO:keepalive data*)
+      |`Keepalive_data -> cont (`Keepalive_data (bool_of_bytes()))
       |`Nis_domain -> cont (`Nis_domain (slice(getint())))
       |`Nis_servers -> cont (`Nis_servers (get_addrs ipv4_addr_of_bytes))
       |`Ntp_servers -> cont (`Ntp_servers (get_addrs ipv4_addr_of_bytes))
       |`Netbios_name_server -> cont (`Netbios_name_server (get_addrs ipv4_addr_of_bytes))
       |`Netbios_dist_srv -> cont (`Netbios_dist_srv (get_addrs ipv4_addr_of_bytes))
-      (*TODO: netbios node type*)
+      |`Netbios_node_type -> cont (`Netbios_node_type (get_number(getint())))
       |`X_window_font_server -> cont (`X_window_font_server (get_addr ipv4_addr_of_bytes))
       |`X_window_manager -> cont (`X_window_manager (get_addr ipv4_addr_of_bytes))
       |`Requested_ip_address -> cont (`Requested_ip_address (get_addr ipv4_addr_of_bytes))
       |`Requested_lease -> cont (`Requested_lease (get_addr uint32_of_bytes))
-      (*TODO: option overload*)
+      |`Option_overload -> cont (`Option_overload (get_number(getint())))
       |`Message_type ->
         check '\001';
         let mcode = match (getc ()) with
@@ -920,6 +947,7 @@ module Unmarshal = struct
       |`Mobile_ip_home_agent_addrs -> cont (`Mobile_ip_home_agent_addrs (get_addrs ipv4_addr_of_bytes))
       |`Smtp_server -> cont (`Smtp_server (get_addrs ipv4_addr_of_bytes))
       |`Pop3_server -> cont (`Pop3_server (get_addrs ipv4_addr_of_bytes))
+      |`Nntp_server -> cont (`Nntp_server (get_addrs ipv4_addr_of_bytes))
       |`Www_server -> cont (`Www_server (get_addrs ipv4_addr_of_bytes))
       |`Finger_server -> cont (`Finger_server (get_addrs ipv4_addr_of_bytes))
       |`Irc_server -> cont (`Irc_server (get_addrs ipv4_addr_of_bytes))
