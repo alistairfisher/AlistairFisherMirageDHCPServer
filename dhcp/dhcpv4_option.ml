@@ -677,7 +677,7 @@ module Marshal = struct
       |`Renewal_time r -> uint32 `Renewal_time r
       |`Rebinding_time r -> uint32 `Rebinding_time r
       |`Client_identifier s ->
-        let s' = "\000" ^ s in (* only support domain name ids ???? *)
+        let s' = "\000" ^ s in (* only support domain name ids *)
         str `Client_identifier s'
       |`Netware_domain n -> str `Netware_domain n
       |`Nis_domain_name n -> str `Nis_domain_name n
@@ -940,7 +940,7 @@ module Unmarshal = struct
       |`Client_identifier ->
         let len = getint () in
         let _ = getint () in (* disregard type information *)
-        cont (`Client_identifier (slice len))
+        cont (`Client_identifier (slice (len-1)))
       |`Netware_domain -> cont (`Netware_domain (slice (getint())))
       |`Nis_domain_name -> cont (`Nis_domain_name (slice(getint())))
       |`Nis_server_addr -> cont (`Nis_server_addr (get_addrs ipv4_addr_of_bytes))
