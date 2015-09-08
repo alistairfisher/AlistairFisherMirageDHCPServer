@@ -14,6 +14,10 @@
 open Dhcpv4_option;;
 open Dhcpv4_option.Packet;;
 
+let client_requests_to_string t =
+  let strings = List.map msg_to_string t in
+  String.concat "," strings;;
+
 let rec find_option option subnet_parameters global_parameters = 
   let rec find_option2 option parameter_list = (*Find an option in the list of subnet parameters*)
     match parameter_list with

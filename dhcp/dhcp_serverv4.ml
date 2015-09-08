@@ -23,7 +23,7 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
   exception DHCP_Server_Error of string;;
  
   module Lease_state = struct
-    type t = | Reserved of (int32*string) | Active of string (*use the int32 to hold a reservations transaction id*) (*TODO: use Dhcpv4_datastructures.client_identifier instead of string*)
+    type t = | Reserved of (int32*string) | Active of string (*use the int32 to hold a reservations transaction id*) (*TODO: use Datastructures.client_identifier instead of string*)
   
     let of_string s = 
       try
@@ -116,7 +116,7 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
   let task owner =
     Irmin.Task.create ~date:(Int64.of_float (Clock.time ())) ~owner 
   
-  let get_table_branch t = I.head_exn (t.addresses "Fetching head branch") >>= fun head -> (*returns a temporary branch of HEAD*)
+  let get_table_branch t = I.head_exn (t.addresses "Fetching head branch") >>= fun head -> (*returns a temporary new branch off of HEAD*)
     I.of_head t.irmin_config (task "owner") head
   
   let get_table t =
@@ -196,7 +196,7 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
     ~dest:dest_ip_address
   
   (*unwrap DHCP packet, case split depending on the contents*)
-  let parse_packet (t:t) ~src ~dst ~packet = (*lots of duplication with client, need to combine into one unit*)
+  let parse_packet (t:t) ~src ~dst ~packet = 
     let ciaddr = packet.ciaddr in
     let yiaddr = packet.yiaddr in
     let giaddr = packet.giaddr in
@@ -343,15 +343,24 @@ module Internal (Console:V1_LWT.CONSOLE)(*The internal part of the server (no ne
         Console.log t.c (Printf.sprintf "Client %s has released address %s" client_identifier (Ipaddr.V4.to_string ciaddr));
         Lwt.return None          
       |`Inform ->
-        Console.log t.c (Printf.sprintf "Client %s has sent a DHCPINFORM" client_identifier); (*TODO: print a list of requested options*) 
+        Console.log t.c (Printf.sprintf "Client %s has sent a DHCPINFORM for options %s" client_identifier (client_requests_to_string client_requests));
         let options = make_options_without_lease ~client_requests:client_requests ~serverIP:serverIP ~subnet_parameters:subnet_parameters ~global_parameters:t.global_parameters
         ~message_type:`Ack in
         Lwt.return (Some (server_construct_packet t ~xid:xid ~ciaddr:ciaddr ~yiaddr:yiaddr ~siaddr:serverIP ~giaddr:giaddr ~chaddr:chaddr ~flags:flags ~options:options));
       | _ -> Lwt.return None (*this is a packet meant for a client*)
       with
       |DHCP_Server_Error message ->
-        let timestamp = Clock.time() in
-        let error_message = Printf.sprintf "[%f] Dhcp server error: %s" timestamp message in (*TODO: print correct timestamp*)
+        let timestamp =
+          let open Clock in
+          let secs = time() in
+          let gm = gmtime secs in
+          let c x =
+            if x<10 then "0"^ (string_of_int x)
+            else string_of_int x
+          in 
+          Printf.sprintf "[%s/%s/%d %s:%s:%s UTC]" (c gm.tm_mday) (c (gm.tm_mon+1)) (gm.tm_year + 1900) (c gm.tm_hour) (c gm.tm_min) (c gm.tm_sec)
+        in
+        let error_message = Printf.sprintf "%s Dhcp server error: %s" timestamp message in
         Console.log t.c error_message;
         Lwt.return None
       |Not_found -> Lwt.return None
@@ -398,7 +407,7 @@ module Make (Console:V1_LWT.CONSOLE)
     let server_subnet = find_subnet sample_server_ip subnets in
     let node = Table.Path.create node in
     let owner = String.concat "/" node in
-    I.create irmin_config (task owner) >>= fun addresses-> (*?????????*)
+    I.create irmin_config (task owner) >>= fun addresses->
     Lwt.return {c;server_subnet;serverIPs;subnets;global_parameters;addresses;irmin_config;node};;
   
   let serverThread t udp =
@@ -410,7 +419,7 @@ module Make (Console:V1_LWT.CONSOLE)
     let make_unit x = Lwt.return_unit in
     make_unit (Udp.input ~listeners:listener udp);;
   
-  let start ~c ~clock ~udp ~ip irmin_config node (dhcpd_config:Data_structures.dhcpd_config) = 
+  let start ~c ~clock ~udp ~ip irmin_config node (dhcpd_config:Data_structures.dhcpd_config) =
     server_set_up c ip irmin_config node dhcpd_config >>= fun t->
     Lwt.join [serverThread t udp;garbage_collect t 60.0];;
 end
