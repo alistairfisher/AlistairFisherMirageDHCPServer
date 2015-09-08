@@ -5,6 +5,7 @@ setup.log
 examples/
 tcp/
 lib/
+dhcp/lexer.ml
 lib_test/dhcpd.conf
 tests/
 _tests/
